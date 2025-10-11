@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alat Bantu Pemrosesan Referensi Otomatis - UAD</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <header class="header">
+        <div class="container">
+            <h1> Alat Bantu Pemrosesan Referensi Otomatis</h1>
+            <p>Sistem berbasis Natural Language Processing untuk validasi referensi ilmiah secara otomatis</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Input Section -->
+        <div class="card">
+            <h2 class="card-title">
+                <i class="fas fa-upload"></i>
+                Input Referensi
+            </h2>
+
+            <form id="referenceForm">
+                <div class="input-section">
+                    <!-- File Upload -->
+                    <div>
+                        <div class="form-group">
+                            <label for="fileInput">
+                                <i class="fas fa-file-word"></i> Upload File Dokumen (.docx)
+                            </label>
+                            <div class="file-upload-area" id="fileUploadArea">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p><strong>Klik untuk memilih file</strong></p>
+                                <p>atau seret dan lepas file di sini</p>
+                                <p class="file-upload-hint">
+                                    Format yang didukung: .docx (maksimal 16MB)
+                                </p>
+                                <input type="file" id="fileInput" name="file" accept=".docx" />
+                            </div>
+                            <div id="fileName"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="form-group">
+                            <label for="textInput">
+                                <i class="fas fa-keyboard"></i> Atau Masukkan Referensi Manual
+                            </label>
+                            <textarea id="textInput" name="text" placeholder="Masukkan daftar referensi Anda di sini, satu referensi per baris...
+
+Contoh:
+[1] Smith, J. (2023). Artificial Intelligence in Education. Journal of Educational Technology, 15(2), 123-145.
+[2] Johnson, A., & Brown, B. (2022). Natural Language Processing Applications. IEEE Computer Society.
+[3] Wilson, C. (2024). Machine Learning Fundamentals. Academic Press."></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="styleSelect">
+                        <i class="fas fa-palette"></i> Gaya Penulisan Referensi
+                    </label>
+                    <select id="styleSelect" name="style">
+                        <option value="APA">APA (American Psychological Association)</option>
+                        <option value="IEEE">IEEE (Institute of Electrical and Electronics Engineers)</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-full" id="validateBtn">
+                    <i class="fas fa-check-circle"></i>
+                    Validasi Referensi
+                </button>
+            </form>
+        </div>
+
+        <!-- Loading Section -->
+        <div class="card loading" id="loadingSection">
+            <div class="spinner"></div>
+            <h3>Memproses Referensi...</h3>
+            <p>Sistem sedang menganalisis referensi menggunakan teknologi NLP. Mohon tunggu sebentar.</p>
+            <div id="progressInfo"></div>
+        </div>
+
+        <!-- Results Section -->
+        <div class="results" id="resultsSection">
+            <!-- Summary Card -->
+            <div class="card">
+                <h2 class="card-title">
+                    <i class="fas fa-chart-bar"></i>
+                    Ringkasan Hasil Validasi
+                </h2>
+
+                <div class="summary-grid" id="summaryGrid">
+                </div>
+
+                <div class="recommendations" id="recommendationsSection">
+                    <h3><i class="fas fa-lightbulb"></i> Rekomendasi</h3>
+                    <ul id="recommendationsList">
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 class="card-title">
+                    <i class="fas fa-list-alt"></i>
+                    Hasil Detail Validasi
+                </h2>
+
+                <div class="tab-buttons">
+                    <button class="tab-button active" onclick="showTab(event, 'all')">
+                        <i class="fas fa-list"></i> Semua (<span id="allCount">0</span>)
+                    </button>
+                    <button class="tab-button" onclick="showTab(event, 'valid')">
+                        <i class="fas fa-check"></i> Valid (<span id="validCount">0</span>)
+                    </button>
+                    <button class="tab-button" onclick="showTab(event, 'invalid')">
+                        <i class="fas fa-times"></i> Invalid (<span id="invalidCount">0</span>)
+                    </button>
+                </div>
+
+                <div id="detailedResults">
+                </div>
+            </div>
+        </div>
+
+        <div id="errorSection" style="display: none;">
+            <div class="error-message">
+                <h3><i class="fas fa-exclamation-triangle"></i> Terjadi Kesalahan</h3>
+                <p id="errorMessage"></p>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 Universitas Ahmad Dahlan - Fakultas Teknologi Industri</p>
+            <p>Dikembangkan oleh: Arvin Sultan Satria (2200018418)</p>
+            <p>Program Studi S1 Informatika</p>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+
+</html>

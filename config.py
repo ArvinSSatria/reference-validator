@@ -13,7 +13,7 @@ class Config:
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     
     # Konfigurasi Aplikasi
-    ALLOWED_EXTENSIONS = {'docx'}
+    ALLOWED_EXTENSIONS = {'docx', 'pdf'}
     SCIMAGO_FILE_PATH = 'scimagojr 2024.csv'
     
     # Konfigurasi API

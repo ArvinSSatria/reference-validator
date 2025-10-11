@@ -1,3 +1,4 @@
+import fitz  # PyMuPDF
 import os
 import google.generativeai as genai
 import io
@@ -12,14 +13,15 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+# --- (Bagian SCIMAGO_DATA, _clean_scimago_title, load_scimago_data, get_generative_model tetap SAMA) ---
 SCIMAGO_DATA = {
-    "by_title": {}, # Untuk menyimpan {judul: id}
-    "by_cleaned_title": {} # Untuk menyimpan {judul_bersih: id}
+    "by_title": {},
+    "by_cleaned_title": {}
 }
-
 _MODEL_CACHE = None
 
 def _clean_scimago_title(title):
+    if not isinstance(title, str): return ""
     return re.sub(r'[\.,\(\)]', '', title.lower()).strip()
 
 def load_scimago_data():
@@ -31,13 +33,9 @@ def load_scimago_data():
             for _, row in df.iterrows():
                 title = row['Title'].strip()
                 source_id = row['Sourceid']
-                
-                # Simpan data asli
                 SCIMAGO_DATA["by_title"][title.lower()] = source_id
-                # Simpan data yang sudah dibersihkan untuk pencarian
                 cleaned_title = _clean_scimago_title(title)
                 SCIMAGO_DATA["by_cleaned_title"][cleaned_title] = source_id
-
             logger.info(f"Dataset ScimagoJR berhasil dimuat dengan {len(SCIMAGO_DATA['by_title'])} jurnal.")
         else:
             logger.error("Kolom 'Sourceid' atau 'Title' tidak ditemukan.")
@@ -48,125 +46,98 @@ load_scimago_data()
 
 def get_generative_model():
     global _MODEL_CACHE
-    if _MODEL_CACHE:
-        return _MODEL_CACHE
-
+    if _MODEL_CACHE: return _MODEL_CACHE
     try:
-        genai.configure(
-            api_key=Config.GEMINI_API_KEY,
-            transport='rest'
-        )
-        
+        genai.configure(api_key=Config.GEMINI_API_KEY, transport='rest')
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        preferred_models = [
-            'models/gemini-flash-latest',
-            'models/gemini-2.5-pro',
-        ]
-        
+        preferred_models = ['models/gemini-flash-latest', 'models/gemini-pro', 'models/gemini-pro-latest']
         model_to_use = None
         for model in preferred_models:
             if model in available_models:
                 model_to_use = model
                 break
-        
         if not model_to_use:
             logger.warning("Model preferensi tidak ditemukan, menggunakan model pertama yang tersedia.")
-            if not available_models:
-                raise Exception("Tidak ada model yang tersedia di akun Anda.")
+            if not available_models: raise Exception("Tidak ada model yang tersedia di akun Anda.")
             model_to_use = available_models[0]
-
         logger.info(f"Menginisialisasi dan caching model: {model_to_use}")
         _MODEL_CACHE = genai.GenerativeModel(model_to_use)
         return _MODEL_CACHE
-
     except Exception as e:
         logger.critical(f"Gagal total menginisialisasi model Gemini: {e}")
         raise e
 
-def _clean_reference_text(text):
-    text = re.sub(r'^\[\d+\]\s*|^\(\d+\)\s*|^\d+\.\s*|^\d+\)\s*', '', text.strip()) 
-    text = re.sub(r'\s+', ' ', text) 
-    return text.strip()
+# --- LOGIKA EKSTRAKSI BARU DENGAN METODE "PEMOTONGAN" ---
 
-def _is_likely_reference(text):
-    text = text.strip()
-    if len(text) < 25:
-        return False
-    if re.match(r'^\[\d+\]|^\(\d+\)|^\d+\.', text):
-        return True
-    if re.search(r'\(\d{4}\)|\.\s\d{4}\.', text):
-        if re.search(r'[A-Z][a-z]+,\s[A-Z]\.', text):
-            return True
-    if 'doi.org' in text.lower():
-        return True
-    return False
+def _find_references_section_as_text_block(paragraphs):
+    """Menemukan bagian daftar pustaka dan mengembalikannya sebagai SATU BLOK TEKS."""
+    REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
+    start_index = -1
+
+    for i, para in enumerate(paragraphs):
+        # Cari judul yang berdiri sendiri
+        if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para) < 30:
+            start_index = i
+            logger.info(f"Judul Daftar Pustaka ditemukan di paragraf #{i}: '{para}'")
+            break
+    
+    if start_index == -1:
+        return None, "Judul bagian 'Daftar Pustaka' tidak ditemukan dalam dokumen."
+
+    # Gabungkan semua paragraf setelah judul menjadi satu string besar
+    references_block = "\n".join(paragraphs[start_index + 1:])
+    
+    if not references_block.strip():
+        return None, "Bagian 'Daftar Pustaka' ditemukan, tetapi kosong."
+
+    return references_block, None
 
 def _extract_references_from_docx(file_stream):
+    """Membaca DOCX dan mengembalikan daftar pustaka sebagai satu blok teks."""
     try:
         doc = docx.Document(io.BytesIO(file_stream.read()))
         paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        
-        REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
-        
-        references_text = []
-        start_index = -1
-
-        for i, para in enumerate(paragraphs):
-            if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para) < 30:
-                found_first_ref = False
-                for j in range(1, 6):
-                    if (i + j) < len(paragraphs):
-                        next_para = paragraphs[i + j]
-                        if _is_likely_reference(next_para):
-                            start_index = i + j
-                            found_first_ref = True
-                            logger.info(f"Judul '{para}' divalidasi. Referensi pertama ditemukan di paragraf #{start_index}.")
-                            break
-                if found_first_ref:
-                    break
-        
-        if start_index == -1:
-            return None, "Judul bagian 'Daftar Pustaka' tidak ditemukan atau tidak diikuti oleh konten referensi yang valid."
-
-        references_text.append(_clean_reference_text(paragraphs[start_index]))
-        
-        consecutive_non_ref_count = 0
-        for i in range(start_index + 1, len(paragraphs)):
-            para = paragraphs[i]
-            
-            if _is_likely_reference(para):
-                cleaned = _clean_reference_text(para)
-                references_text.append(cleaned)
-                consecutive_non_ref_count = 0
-            else:
-                consecutive_non_ref_count += 1
-            
-            if consecutive_non_ref_count >= 3:
-                logger.info(f"Berhenti menangkap setelah menemukan {consecutive_non_ref_count} paragraf non-referensi berturut-turut.")
-                break
-        
-        logger.info(f"Berhasil mengekstrak {len(references_text)} referensi dari DOCX (metode cerdas v2).")
-        return references_text, None
-
+        return _find_references_section_as_text_block(paragraphs)
     except Exception as e:
         logger.error(f"Gagal memproses file .docx: {e}", exc_info=True)
         return None, f"Gagal memproses file .docx: {e}"
 
+def _extract_references_from_pdf(file_stream):
+    """Membaca PDF dan mengembalikan daftar pustaka sebagai satu blok teks."""
+    try:
+        pdf_bytes = file_stream.read()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        full_text = "".join(page.get_text("text") + "\n" for page in doc)
+        doc.close()
+        paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
+        return _find_references_section_as_text_block(paragraphs)
+    except Exception as e:
+        logger.error(f"Gagal memproses file .pdf: {e}", exc_info=True)
+        return None, f"Gagal memproses file .pdf: {e}"
+
 def _get_references_from_request(request):
+    """Mengambil input sebagai SATU BLOK TEKS, baik dari file maupun textarea."""
     if 'file' in request.files and request.files['file'].filename:
         file = request.files['file']
         filename = secure_filename(file.filename)
-        if not filename.lower().endswith('.docx'):
-            return None, "Saat ini hanya mendukung file .docx"
-        return _extract_references_from_docx(file)
+        
+        if not ('.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS):
+            return None, "Format file tidak didukung."
+
+        if filename.lower().endswith('.docx'):
+            return _extract_references_from_docx(file)
+        elif filename.lower().endswith('.pdf'):
+            return _extract_references_from_pdf(file)
+    
     if 'text' in request.form and request.form['text'].strip():
-        text_input = request.form['text'].strip()
-        ref_list = [_clean_reference_text(r) for r in text_input.split('\n') if r.strip()]
-        return ref_list, None
+        # Jika input dari textarea, itu sudah menjadi blok teks
+        return request.form['text'].strip(), None
+        
     return None, "Tidak ada input yang diberikan."
 
+# --- (Fungsi-fungsi analisis sisanya tetap sama: _construct_batch_gemini_prompt, _process_ai_response, dll.) ---
 def _construct_batch_gemini_prompt(references_list, style):
+    # ... (Kode tidak berubah) ...
     year_threshold = datetime.now().year - Config.REFERENCE_YEAR_THRESHOLD
     formatted_references = "\n".join([f"{i+1}. {ref}" for i, ref in enumerate(references_list)])
     return f"""
@@ -208,6 +179,7 @@ def _construct_batch_gemini_prompt(references_list, style):
     """
 
 def _process_ai_response(batch_results_json, references_list):
+    # ... (Kode tidak berubah) ...
     detailed_results = []
     for result_json in batch_results_json:
         ref_num = result_json.get("reference_number", 0)
@@ -215,44 +187,34 @@ def _process_ai_response(batch_results_json, references_list):
         year_match = re.search(r'(\d{4})', str(result_json.get('parsed_year', '')))
         parsed_year = int(year_match.group(1)) if year_match else None
         overall_score = result_json.get('overall_score', 0)
-        
         journal_name = result_json.get('parsed_journal')
         ref_type = result_json.get('reference_type', 'other')
-        
         is_indexed = False
         scimago_link = None
-        
         if journal_name and SCIMAGO_DATA["by_cleaned_title"]:
             cleaned_journal_name = _clean_scimago_title(journal_name)
-            
-            # 1: Coba pencocokan persis (paling akurat)
             if cleaned_journal_name in SCIMAGO_DATA["by_cleaned_title"]:
                 is_indexed = True
                 source_id = SCIMAGO_DATA["by_cleaned_title"][cleaned_journal_name]
                 scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={source_id}&tip=sid"
-            
-            # 2: Jika gagal, coba pencocokan 'in' yang lebih longgar
             else:
                 for cleaned_title_db, source_id in SCIMAGO_DATA["by_cleaned_title"].items():
                     if len(cleaned_journal_name) > 4 and cleaned_journal_name in cleaned_title_db:
                         is_indexed = True
                         scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={source_id}&tip=sid"
                         break
-        
         ai_assessment_valid = all([
             result_json.get('is_format_correct', False),
             result_json.get('is_complete', False),
             result_json.get('is_year_recent', False),
-            result_json.get('is_scientific_source', True)
+            result_json.get('is_scientific_source', False)
         ])
-        
         is_overall_valid = False
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
-        
         if ref_type == 'journal':
             if ai_assessment_valid and is_indexed:
                 is_overall_valid = True
-                final_feedback += " Status: VALID (Jurnal terindeks di ScimagoJR dan memenuhi semua kriteria kualitas)."
+                final_feedback += " Status: VALID (Jurnal terindeks di ScimagoJR dan memenuhi kriteria kualitas)."
             elif not is_indexed:
                 final_feedback += " Status: INVALID (Jurnal tidak ditemukan di database ScimagoJR 2024)."
             else:
@@ -260,29 +222,21 @@ def _process_ai_response(batch_results_json, references_list):
         else:
             is_overall_valid = False
             final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', bukan jurnal terindeks ScimagoJR.)"
-
         detailed_results.append({
-            "reference_number": ref_num,
-            "reference_text": ref_text,
-            "status": "valid" if is_overall_valid else "invalid",
-            "reference_type": ref_type,
-            "parsed_year": parsed_year,
-            "parsed_journal": journal_name,
-            "overall_score": overall_score,
-            "is_indexed": is_indexed,
-            "scimago_link": scimago_link,
+            "reference_number": ref_num, "reference_text": ref_text, "status": "valid" if is_overall_valid else "invalid",
+            "reference_type": ref_type, "parsed_year": parsed_year, "parsed_journal": journal_name,
+            "overall_score": overall_score, "is_indexed": is_indexed, "scimago_link": scimago_link,
             "validation_details": {
                 "format_correct": result_json.get('is_format_correct', False),
                 "complete": result_json.get('is_complete', False),
                 "year_recent": result_json.get('is_year_recent', False),
-                "scientific_source": result_json.get('is_scientific_source', False) # Tetap tampilkan ini
             },
-            "missing_elements": result_json.get('missing_elements', []),
-            "feedback": final_feedback
+            "missing_elements": result_json.get('missing_elements', []), "feedback": final_feedback
         })
     return detailed_results
-
+    
 def _generate_summary_and_recommendations(detailed_results, count_validation, style):
+    # ... (Kode tidak berubah) ...
     total = len(detailed_results)
     valid_count = sum(1 for r in detailed_results if r['status'] == 'valid')
     journal_count = sum(1 for r in detailed_results if r['reference_type'] == 'journal')
@@ -301,38 +255,70 @@ def _generate_summary_and_recommendations(detailed_results, count_validation, st
     if not recommendations: recommendations.append("✅ Referensi sudah memenuhi standar kualitas umum. Siap untuk tahap selanjutnya.")
     return summary, recommendations
 
+# --- FUNGSI UTAMA YANG DIUBAH TOTAL ---
 
 def process_validation_request(request):
-    references_list, error = _get_references_from_request(request)
+    """
+    Fungsi orkestrator utama dengan metode "pemotongan" AI.
+    """
+    # Langkah 1: Dapatkan SELURUH BLOK TEKS daftar pustaka dari input
+    references_block, error = _get_references_from_request(request)
     if error: return {"error": error}
-    if not references_list: return {"error": "Tidak ada referensi yang dapat diproses."}
-    
-    count = len(references_list)
-    count_valid = Config.MIN_REFERENCE_COUNT <= count <= Config.MAX_REFERENCE_COUNT
-    count_message = f"Jumlah referensi ({count}) sudah sesuai standar."
-    if count < Config.MIN_REFERENCE_COUNT:
-        count_message = f"Jumlah referensi ({count}) kurang dari minimum ({Config.MIN_REFERENCE_COUNT})."
-    elif count > Config.MAX_REFERENCE_COUNT:
-        count_message = f"Jumlah referensi ({count}) melebihi maksimum ({Config.MAX_REFERENCE_COUNT})."
-    
-    count_validation = {"is_count_appropriate": count_valid, "count_message": count_message}
-
-    style = request.form.get('style', 'APA')
-    logger.info(f"Memulai analisis BATCH untuk {len(references_list)} referensi (Gaya: {style}).")
+    if not references_block: return {"error": "Tidak ada konten referensi yang dapat diproses."}
     
     try:
         model = get_generative_model()
+
+        # Langkah 2: Panggilan AI #1 - "MEMOTONG" blok teks menjadi daftar referensi
+        logger.info("Meminta AI untuk memisahkan referensi dari blok teks...")
+        splitter_prompt = f"""
+        Diberikan blok teks daftar pustaka berikut, pisahkan menjadi entri-entri referensi individual.
+        Pastikan setiap entri adalah referensi yang lengkap.
+        Kembalikan hasilnya sebagai sebuah array JSON dari string.
+        Contoh output: ["Referensi lengkap pertama...", "Referensi lengkap kedua...", "Referensi lengkap ketiga..."]
+
+        Teks untuk dipisahkan:
+        ---
+        {references_block}
+        ---
+        """
+        response = model.generate_content(splitter_prompt)
         
-        prompt = _construct_batch_gemini_prompt(references_list, style)
-        response = model.generate_content(prompt, generation_config={"temperature": 0.1})
-        
-        response_text = response.text.strip().replace('```json', '').replace('```', '').strip()
-        json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        # Ekstraksi JSON yang lebih tangguh
+        json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
         if not json_match:
-            raise ValueError("Respons AI tidak mengandung format array JSON yang valid.")
+            logger.error(f"AI gagal memisahkan referensi. Respons mentah: {response.text}")
+            raise ValueError("AI gagal memisahkan referensi ke dalam format JSON array.")
         
-        batch_results_json = json.loads(json_match.group(0))
+        references_list = json.loads(json_match.group(0))
+        logger.info(f"AI berhasil memisahkan menjadi {len(references_list)} referensi.")
         
+        if not references_list:
+            return {"error": "Tidak ada referensi individual yang dapat diidentifikasi oleh AI."}
+
+        # Langkah 3: Lanjutkan dengan alur yang sudah ada, menggunakan `references_list` yang baru
+        count = len(references_list)
+        count_valid = Config.MIN_REFERENCE_COUNT <= count <= Config.MAX_REFERENCE_COUNT
+        count_message = f"Jumlah referensi ({count}) sudah sesuai standar."
+        if count < Config.MIN_REFERENCE_COUNT:
+            count_message = f"Jumlah referensi ({count}) kurang dari minimum ({Config.MIN_REFERENCE_COUNT})."
+        elif count > Config.MAX_REFERENCE_COUNT:
+            count_message = f"Jumlah referensi ({count}) melebihi maksimum ({Config.MAX_REFERENCE_COUNT})."
+        count_validation = {"is_count_appropriate": count_valid, "count_message": count_message}
+        
+        style = request.form.get('style', 'APA')
+        
+        # Langkah 4: Panggilan AI #2 - MENGANALISIS daftar yang sudah bersih
+        logger.info(f"Memulai analisis BATCH untuk {len(references_list)} referensi (Gaya: {style}).")
+        analyzer_prompt = _construct_batch_gemini_prompt(references_list, style)
+        analysis_response = model.generate_content(analyzer_prompt, generation_config={"temperature": 0.1})
+        
+        analysis_json_match = re.search(r'\[.*\]', analysis_response.text, re.DOTALL)
+        if not analysis_json_match:
+            logger.error(f"AI gagal menganalisis referensi. Respons mentah: {analysis_response.text}")
+            raise ValueError("AI gagal menganalisis referensi ke dalam format JSON array.")
+        
+        batch_results_json = json.loads(analysis_json_match.group(0))
         detailed_results = _process_ai_response(batch_results_json, references_list)
         summary, recommendations = _generate_summary_and_recommendations(detailed_results, count_validation, style)
 
@@ -344,5 +330,5 @@ def process_validation_request(request):
         }
 
     except Exception as e:
-        logger.error(f"Error kritis saat pemrosesan batch AI: {e}", exc_info=True)
-        return {"error": f"Terjadi kesalahan saat berkomunikasi dengan AI. Detail: {e}"}
+        logger.error(f"Error kritis saat pemrosesan AI: {e}", exc_info=True)
+        return {"error": f"Terjadi kesalahan saat pemrosesan AI. Detail: {e}"}

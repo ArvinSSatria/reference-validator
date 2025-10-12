@@ -136,9 +136,9 @@ def _get_references_from_request(request):
     return None, "Tidak ada input yang diberikan."
 
 # --- (Fungsi-fungsi analisis sisanya tetap sama: _construct_batch_gemini_prompt, _process_ai_response, dll.) ---
-def _construct_batch_gemini_prompt(references_list, style):
+def _construct_batch_gemini_prompt(references_list, style, year_range):
     # ... (Kode tidak berubah) ...
-    year_threshold = datetime.now().year - Config.REFERENCE_YEAR_THRESHOLD
+    year_threshold = datetime.now().year - year_range
     formatted_references = "\n".join([f"{i+1}. {ref}" for i, ref in enumerate(references_list)])
     return f"""
     Anda adalah sistem AI ahli untuk validasi referensi ilmiah. Analisis DAFTAR REFERENSI berikut dan kembalikan hasil sebagai SEBUAH ARRAY JSON TUNGGAL yang valid.
@@ -150,8 +150,8 @@ def _construct_batch_gemini_prompt(references_list, style):
         - Untuk 'conference': Penulis, Tahun, Judul Paper, Nama Konferensi.
         Beri `false` pada `is_complete` dan sebutkan elemen yang hilang di `missing_elements` jika tidak terpenuhi.
     3. TAHUN TERBIT:
-        - Untuk 'journal' dan 'conference': Dianggap terkini jika >= {year_threshold} (sangat disarankan). Beri `false` pada `is_year_recent` jika lebih tua.
-        - Untuk 'book': Aturan tahun lebih longgar. `is_year_recent` bisa `true` bahkan jika lebih tua dari {year_threshold}, terutama jika itu adalah buku teks fundamental atau edisi terbaru.
+        - Untuk 'journal' dan 'conference': Dianggap terkini jika >= {year_threshold} ({year_range} tahun terakhir). Beri `false` pada `is_year_recent` jika lebih tua.
+        - Untuk 'book': Aturan tahun lebih longgar. `is_year_recent` bisa `true` bahkan jika lebih tua dari {year_range} tahun, terutama jika itu adalah buku teks fundamental.
     4. JENIS SUMBER: Harus dari sumber yang kredibel dan otoritatif.
         ✓ Jurnal peer-reviewed, Buku akademik, Proceeding konferensi
         ✓ Website dari organisasi pemerintah, akademik, atau internasional yang dikenal (seperti WHO, PBB, universitas)
@@ -307,10 +307,11 @@ def process_validation_request(request):
         count_validation = {"is_count_appropriate": count_valid, "count_message": count_message}
         
         style = request.form.get('style', 'APA')
+        year_range = request.form.get('year_range', Config.REFERENCE_YEAR_THRESHOLD, type=int)
         
         # Langkah 4: Panggilan AI #2 - MENGANALISIS daftar yang sudah bersih
         logger.info(f"Memulai analisis BATCH untuk {len(references_list)} referensi (Gaya: {style}).")
-        analyzer_prompt = _construct_batch_gemini_prompt(references_list, style)
+        analyzer_prompt = _construct_batch_gemini_prompt(references_list, style, year_range)
         analysis_response = model.generate_content(analyzer_prompt, generation_config={"temperature": 0.1})
         
         analysis_json_match = re.search(r'\[.*\]', analysis_response.text, re.DOTALL)

@@ -82,6 +82,35 @@ body {
     margin-bottom: 2rem;
 }
 
+.options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: end; /* Membuat label dan input sejajar di bagian bawah */
+}
+
+input[type="number"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #ddd;
+    border-radius: var(--border-radius);
+    font-size: 1rem;
+    transition: border-color 0.3s ease;
+}
+
+input[type="number"]:focus {
+    outline: none;
+    border-color: var(--secondary-color);
+}
+
+/* Membuatnya kembali menjadi satu kolom di layar kecil */
+@media (max-width: 768px) {
+    .options-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+
 @media (max-width: 768px) {
     .input-section {
         grid-template-columns: 1fr;

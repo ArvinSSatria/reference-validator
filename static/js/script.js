@@ -35,7 +35,7 @@ function handleDragLeave(e) {
 function handleFileDrop(e) {
     e.preventDefault();
     fileUploadArea.classList.remove('dragover');
-    
+
     const files = e.dataTransfer.files;
     if (files.length > 0) {
         fileInput.files = files;
@@ -65,7 +65,7 @@ form.addEventListener('submit', async (e) => {
 
 async function validateReferences() {
     const formData = new FormData(form);
-    
+
     if (!fileInput.files.length && !textInput.value.trim()) {
         showError('Mohon unggah file atau masukkan teks referensi.');
         return;
@@ -129,7 +129,7 @@ function displayResults(data) {
     displayRecommendations(recommendations);
     displayDetailedResults(detailed_results);
     updateTabCounts(detailed_results);
-    
+
     resultsSection.style.display = 'block';
     resultsSection.scrollIntoView({ behavior: 'smooth' });
 }
@@ -185,7 +185,7 @@ function createReferenceItemHTML(result, index) {
     const statusClass = result.status === 'valid' ? 'valid' : 'invalid';
     const statusIcon = result.status === 'valid' ? 'fas fa-check-circle' : 'fas fa-times-circle';
     const statusText = result.status.toUpperCase();
- 
+
     let validationDetailsHTML = '';
     if (result.validation_details) {
         validationDetailsHTML = `
@@ -214,6 +214,22 @@ function createReferenceItemHTML(result, index) {
             </p>`;
     }
 
+    let quartileHTML = '';
+    if (result.is_indexed) {
+        if (result.quartile && result.quartile !== '-') {
+            quartileHTML = `
+            <p class="meta-info">
+                <strong>Kuartil:</strong> 
+                <span class="quartile-tag quartile-${result.quartile.toLowerCase()}">${result.quartile}</span>
+            </p>`;
+        } else {
+            quartileHTML = `
+            <p class="meta-info">
+                <strong>Kuartil:</strong> Tidak Tersedia
+            </p>`;
+        }
+    }
+
     return `
         <div class="reference-item ${statusClass}">
             <div class="reference-status ${statusClass === 'valid' ? 'status-valid' : 'status-invalid'}">
@@ -231,7 +247,8 @@ function createReferenceItemHTML(result, index) {
             <p class="meta-info"><strong>Sumber Terdeteksi:</strong> ${result.parsed_journal || 'Tidak terdeteksi'}</p>
             <p class="meta-info"><strong>Jenis Terdeteksi:</strong> ${result.reference_type || 'Tidak terdeteksi'}</p>
             
-            ${scimagoLinkHTML} 
+            ${scimagoLinkHTML}
+            ${quartileHTML} 
             
             <div class="feedback"><i class="fas fa-comment-alt"></i> ${result.feedback}</div>
         </div>`;

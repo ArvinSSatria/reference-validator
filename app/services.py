@@ -13,7 +13,6 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-# --- (Bagian SCIMAGO_DATA, _clean_scimago_title, load_scimago_data, get_generative_model tetap SAMA) ---
 SCIMAGO_DATA = {
     "by_title": {},
     "by_cleaned_title": {}
@@ -28,17 +27,24 @@ def load_scimago_data():
     global SCIMAGO_DATA
     try:
         df = pd.read_csv(Config.SCIMAGO_FILE_PATH, sep=';', encoding='utf-8')
-        if 'Sourceid' in df.columns and 'Title' in df.columns:
-            df.dropna(subset=['Sourceid', 'Title'], inplace=True)
+         # Check for all required columns
+        required_cols = ['Sourceid', 'Title', 'SJR Best Quartile']
+        if all(col in df.columns for col in required_cols):
+            df.dropna(subset=required_cols, inplace=True)
             for _, row in df.iterrows():
                 title = row['Title'].strip()
                 source_id = row['Sourceid']
-                SCIMAGO_DATA["by_title"][title.lower()] = source_id
+                quartile = row['SJR Best Quartile']
+                
+                journal_info = {'id': source_id, 'quartile': quartile}
+                
+                SCIMAGO_DATA["by_title"][title.lower()] = journal_info
                 cleaned_title = _clean_scimago_title(title)
-                SCIMAGO_DATA["by_cleaned_title"][cleaned_title] = source_id
+                SCIMAGO_DATA["by_cleaned_title"][cleaned_title] = journal_info
+                
             logger.info(f"Dataset ScimagoJR berhasil dimuat dengan {len(SCIMAGO_DATA['by_title'])} jurnal.")
         else:
-            logger.error("Kolom 'Sourceid' atau 'Title' tidak ditemukan.")
+            logger.error(f"Kolom yang dibutuhkan ('Sourceid', 'Title', 'SJR Best Quartile') tidak ditemukan.")
     except Exception as e:
         logger.error(f"Error saat memuat database ScimagoJR: {e}")
 
@@ -178,8 +184,9 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
     }}
     """
 
+# Ganti seluruh fungsi ini di app/services.py
+
 def _process_ai_response(batch_results_json, references_list):
-    # ... (Kode tidak berubah) ...
     detailed_results = []
     for result_json in batch_results_json:
         ref_num = result_json.get("reference_number", 0)
@@ -189,26 +196,42 @@ def _process_ai_response(batch_results_json, references_list):
         overall_score = result_json.get('overall_score', 0)
         journal_name = result_json.get('parsed_journal')
         ref_type = result_json.get('reference_type', 'other')
+        
         is_indexed = False
         scimago_link = None
+        quartile = None
+        
+        # Debug output
+        print(f"\n[DEBUG] Memproses: '{journal_name}' (Tipe: {ref_type})")
+        
         if journal_name and SCIMAGO_DATA["by_cleaned_title"]:
             cleaned_journal_name = _clean_scimago_title(journal_name)
+            
+            # Strategi 1: Coba pencocokan persis (paling akurat)
             if cleaned_journal_name in SCIMAGO_DATA["by_cleaned_title"]:
                 is_indexed = True
-                source_id = SCIMAGO_DATA["by_cleaned_title"][cleaned_journal_name]
-                scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={source_id}&tip=sid"
+                journal_info = SCIMAGO_DATA["by_cleaned_title"][cleaned_journal_name]
+                scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
+                quartile = journal_info['quartile']
+            
+            # Strategi 2: Jika gagal, coba pencocokan 'in' yang lebih longgar
             else:
-                for cleaned_title_db, source_id in SCIMAGO_DATA["by_cleaned_title"].items():
+                # --- PERBAIKAN DI SINI ---
+                for cleaned_title_db, journal_info in SCIMAGO_DATA["by_cleaned_title"].items():
                     if len(cleaned_journal_name) > 4 and cleaned_journal_name in cleaned_title_db:
                         is_indexed = True
-                        scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={source_id}&tip=sid"
+                        scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
+                        quartile = journal_info['quartile'] # <-- BARIS YANG HILANG SEBELUMNYA
                         break
+        
+        # --- (Sisa kode tidak berubah) ---
         ai_assessment_valid = all([
             result_json.get('is_format_correct', False),
             result_json.get('is_complete', False),
             result_json.get('is_year_recent', False),
             result_json.get('is_scientific_source', False)
         ])
+        
         is_overall_valid = False
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
         if ref_type == 'journal':
@@ -222,10 +245,11 @@ def _process_ai_response(batch_results_json, references_list):
         else:
             is_overall_valid = False
             final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', bukan jurnal terindeks ScimagoJR.)"
+            
         detailed_results.append({
             "reference_number": ref_num, "reference_text": ref_text, "status": "valid" if is_overall_valid else "invalid",
             "reference_type": ref_type, "parsed_year": parsed_year, "parsed_journal": journal_name,
-            "overall_score": overall_score, "is_indexed": is_indexed, "scimago_link": scimago_link,
+            "overall_score": overall_score, "is_indexed": is_indexed, "scimago_link": scimago_link, "quartile": quartile,
             "validation_details": {
                 "format_correct": result_json.get('is_format_correct', False),
                 "complete": result_json.get('is_complete', False),

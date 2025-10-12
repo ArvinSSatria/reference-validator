@@ -26,7 +26,6 @@
 
             <form id="referenceForm">
                 <div class="input-section">
-                    <!-- File Upload -->
                     <div>
                         <div class="form-group">
                             <label for="fileInput">
@@ -51,7 +50,6 @@
                                 <i class="fas fa-keyboard"></i> Atau Masukkan Referensi Manual
                             </label>
                             <textarea id="textInput" name="text" placeholder="Masukkan daftar referensi Anda di sini, satu referensi per baris...
-
 Contoh:
 [1] Smith, J. (2023). Artificial Intelligence in Education. Journal of Educational Technology, 15(2), 123-145.
 [2] Johnson, A., & Brown, B. (2022). Natural Language Processing Applications. IEEE Computer Society.
@@ -74,7 +72,7 @@ Contoh:
                     </div>
                     <div class="form-group">
                         <label for="yearRangeInput">
-                            <i class="fas fa-calendar-alt"></i> Rentang Tahun Terakhir
+                            <i class="fas fa-calendar-alt"></i> Tahun Publikasi Minimum
                         </label>
                         <input type="number" id="yearRangeInput" name="year_range" min="1" max="50" value="5">
                     </div>
@@ -87,7 +85,6 @@ Contoh:
             </form>
         </div>
 
-        <!-- Loading Section -->
         <div class="card loading" id="loadingSection">
             <div class="spinner"></div>
             <h3>Memproses Referensi...</h3>
@@ -95,9 +92,7 @@ Contoh:
             <div id="progressInfo"></div>
         </div>
 
-        <!-- Results Section -->
         <div class="results" id="resultsSection">
-            <!-- Summary Card -->
             <div class="card">
                 <h2 class="card-title">
                     <i class="fas fa-chart-bar"></i>
@@ -148,7 +143,6 @@ Contoh:
     <footer class="footer">
         <div class="container">
             <p>&copy; 2025 Universitas Ahmad Dahlan - Fakultas Teknologi Industri</p>
-            <p>Dikembangkan oleh: Arvin Sultan Satria (2200018418)</p>
             <p>Program Studi S1 Informatika</p>
         </div>
     </footer>

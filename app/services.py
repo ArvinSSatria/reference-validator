@@ -28,16 +28,21 @@ def load_scimago_data():
     try:
         df = pd.read_csv(Config.SCIMAGO_FILE_PATH, sep=';', encoding='utf-8')
          # Check for all required columns
-        required_cols = ['Sourceid', 'Title', 'SJR Best Quartile']
+        required_cols = ['Sourceid', 'Title', 'Type', 'SJR Best Quartile']
         if all(col in df.columns for col in required_cols):
             df.dropna(subset=required_cols, inplace=True)
             for _, row in df.iterrows():
                 title = row['Title'].strip()
                 source_id = row['Sourceid']
                 quartile = row['SJR Best Quartile']
-                
-                journal_info = {'id': source_id, 'quartile': quartile}
-                
+                source_type = row['Type'].strip().lower()
+
+                journal_info = {
+                    'id': source_id,
+                    'quartile': quartile,
+                    'type': source_type
+                }
+
                 SCIMAGO_DATA["by_title"][title.lower()] = journal_info
                 cleaned_title = _clean_scimago_title(title)
                 SCIMAGO_DATA["by_cleaned_title"][cleaned_title] = journal_info
@@ -172,7 +177,7 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
         "reference_number": <int>,
         "reference_text": "<string>",
         "parsed_year": <int> atau null,
-        "parsed_journal": "<string>" atau null,
+        "parsed_journal": "<string nama jurnal, nama seri buku, atau nama penerbit buku>" atau null. Untuk seri buku (book series) yang memiliki nama panjang, pastikan untuk mengekstrak nama seri selengkapnya.",
         "reference_type": "journal/book/conference/website/other",
         "is_format_correct": <boolean>,
         "is_complete": <boolean>,
@@ -188,7 +193,12 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
 
 def _process_ai_response(batch_results_json, references_list):
     detailed_results = []
+    
+    # --- DAFTAR TIPE YANG DIANGGAP VALID DARI SCIMAGO ---
+    ACCEPTED_SCIMAGO_TYPES = {'journal', 'book series', 'trade journal', 'conference and proceeding'}
+
     for result_json in batch_results_json:
+        # ... (Parsing data dasar tidak berubah) ...
         ref_num = result_json.get("reference_number", 0)
         ref_text = references_list[ref_num - 1] if 0 < ref_num <= len(references_list) else "Teks tidak ditemukan"
         year_match = re.search(r'(\d{4})', str(result_json.get('parsed_year', '')))
@@ -201,53 +211,57 @@ def _process_ai_response(batch_results_json, references_list):
         scimago_link = None
         quartile = None
         
-        # Debug output
-        print(f"\n[DEBUG] Memproses: '{journal_name}' (Tipe: {ref_type})")
-        
+        # --- Logika Pencocokan Scimago (dengan override tipe) ---
         if journal_name and SCIMAGO_DATA["by_cleaned_title"]:
             cleaned_journal_name = _clean_scimago_title(journal_name)
             
-            # Strategi 1: Coba pencocokan persis (paling akurat)
+            # Strategi 1: Pencocokan persis
             if cleaned_journal_name in SCIMAGO_DATA["by_cleaned_title"]:
                 is_indexed = True
                 journal_info = SCIMAGO_DATA["by_cleaned_title"][cleaned_journal_name]
                 scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
                 quartile = journal_info['quartile']
+                ref_type = journal_info['type'] # Override tipe dari Scimago
             
-            # Strategi 2: Jika gagal, coba pencocokan 'in' yang lebih longgar
+            # Strategi 2: Pencocokan longgar
             else:
-                # --- PERBAIKAN DI SINI ---
                 for cleaned_title_db, journal_info in SCIMAGO_DATA["by_cleaned_title"].items():
                     if len(cleaned_journal_name) > 4 and cleaned_journal_name in cleaned_title_db:
                         is_indexed = True
                         scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
-                        quartile = journal_info['quartile'] # <-- BARIS YANG HILANG SEBELUMNYA
+                        quartile = journal_info['quartile']
+                        ref_type = journal_info['type'] # Override tipe dari Scimago
                         break
         
-        # --- (Sisa kode tidak berubah) ---
+        # --- LOGIKA KEPUTUSAN BARU YANG LEBIH FLEKSIBEL ---
         ai_assessment_valid = all([
             result_json.get('is_format_correct', False),
             result_json.get('is_complete', False),
             result_json.get('is_year_recent', False),
-            result_json.get('is_scientific_source', False)
         ])
         
         is_overall_valid = False
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
-        if ref_type == 'journal':
-            if ai_assessment_valid and is_indexed:
+        
+        # PERUBAHAN UTAMA DI SINI
+        if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
+            # Jika terindeks DAN tipenya diterima (journal, book series, dll)
+            if ai_assessment_valid:
                 is_overall_valid = True
-                final_feedback += " Status: VALID (Jurnal terindeks di ScimagoJR dan memenuhi kriteria kualitas)."
-            elif not is_indexed:
-                final_feedback += " Status: INVALID (Jurnal tidak ditemukan di database ScimagoJR 2024)."
+                final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' terindeks di ScimagoJR dan memenuhi kriteria kualitas)."
             else:
-                final_feedback += " Status: INVALID (Meskipun jurnal terindeks, format/kelengkapan/tahun tidak memenuhi syarat.)"
+                final_feedback += f" Status: INVALID (Meskipun sumber terindeks, format/kelengkapan/tahun tidak memenuhi syarat.)"
+        elif is_indexed:
+            # Jika terindeks tapi tipenya TIDAK diterima (misal 'other')
+            final_feedback += f" Status: INVALID (Sumber ditemukan di ScimagoJR, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
         else:
-            is_overall_valid = False
-            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', bukan jurnal terindeks ScimagoJR.)"
-            
+            # Jika tidak terindeks sama sekali
+            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', tidak ditemukan di database ScimagoJR 2024)."
+
         detailed_results.append({
-            "reference_number": ref_num, "reference_text": ref_text, "status": "valid" if is_overall_valid else "invalid",
+            "reference_number": ref_num,
+            # ... (sisa field tidak berubah)
+            "reference_text": ref_text, "status": "valid" if is_overall_valid else "invalid",
             "reference_type": ref_type, "parsed_year": parsed_year, "parsed_journal": journal_name,
             "overall_score": overall_score, "is_indexed": is_indexed, "scimago_link": scimago_link, "quartile": quartile,
             "validation_details": {

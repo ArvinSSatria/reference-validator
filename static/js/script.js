@@ -196,11 +196,12 @@ function createReferenceItemHTML(result, index) {
     }
 
     let indexBadgeHTML = '';
-    if (result.reference_type === 'journal') {
+    // Tampilkan badge ini JIKA SUMBERNYA TERINDEKS, apa pun tipenya
+    if (result.is_indexed) {
         indexBadgeHTML = `
-            <div class="validation-badge ${result.is_indexed ? 'badge-valid' : 'badge-invalid'}">
-                Terindeks Scimago: ${result.is_indexed ? '✓' : '✗'}
-            </div>`;
+        <div class="validation-badge badge-valid">
+            Terindeks Scimago: ✓
+        </div>`;
     }
 
     let scimagoLinkHTML = '';

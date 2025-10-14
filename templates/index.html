@@ -71,8 +71,15 @@ Contoh:
                         </select>
                     </div>
                     <div class="form-group">
+                        <label for="journalPercentInput">
+                            <i class="fas fa-percentage"></i> Min. Persentase Jurnal
+                        </label>
+                        <input type="number" id="journalPercentInput" name="journal_percent" min="0" max="100"
+                            value="80">
+                    </div>
+                    <div class="form-group">
                         <label for="yearRangeInput">
-                            <i class="fas fa-calendar-alt"></i> Tahun Publikasi Minimum
+                            <i class="fas fa-calendar-alt"></i> Min. Tahun Publikasi
                         </label>
                         <input type="number" id="yearRangeInput" name="year_range" min="1" max="50" value="5">
                     </div>

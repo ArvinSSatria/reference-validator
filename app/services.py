@@ -273,13 +273,13 @@ def _process_ai_response(batch_results_json, references_list):
         })
     return detailed_results
     
-def _generate_summary_and_recommendations(detailed_results, count_validation, style):
+def _generate_summary_and_recommendations(detailed_results, count_validation, style, journal_percent_threshold):
     # ... (Kode tidak berubah) ...
     total = len(detailed_results)
     valid_count = sum(1 for r in detailed_results if r['status'] == 'valid')
     journal_count = sum(1 for r in detailed_results if r['reference_type'] == 'journal')
     journal_percentage = (journal_count / total) * 100 if total > 0 else 0
-    meets_journal_req = journal_percentage >= Config.JOURNAL_PROPORTION_THRESHOLD
+    meets_journal_req = journal_percentage >= journal_percent_threshold
     distribution = {"journal_percentage": round(journal_percentage, 1), "meets_journal_requirement": meets_journal_req}
     summary = {
         "total_references": total, "valid_references": valid_count, "invalid_references": total - valid_count,
@@ -288,7 +288,7 @@ def _generate_summary_and_recommendations(detailed_results, count_validation, st
     }
     recommendations = []
     if summary['validation_rate'] < 70: recommendations.append("⚠️ Tingkat validitas rendah. Banyak referensi perlu perbaikan format atau kelengkapan.")
-    if not meets_journal_req: recommendations.append(f"📊 Proporsi jurnal ({journal_percentage:.1f}%) belum memenuhi syarat minimal {Config.JOURNAL_PROPORTION_THRESHOLD}%.")
+    if not meets_journal_req: recommendations.append(f"📊 Proporsi jurnal ({journal_percentage:.1f}%) belum memenuhi syarat minimal yang Anda tentukan ({journal_percent_threshold}%).")
     if not count_validation['is_count_appropriate']: recommendations.append(f"📝 {count_validation['count_message']}")
     if not recommendations: recommendations.append("✅ Referensi sudah memenuhi standar kualitas umum. Siap untuk tahap selanjutnya.")
     return summary, recommendations
@@ -346,6 +346,7 @@ def process_validation_request(request):
         
         style = request.form.get('style', 'APA')
         year_range = request.form.get('year_range', Config.REFERENCE_YEAR_THRESHOLD, type=int)
+        journal_percent_threshold = request.form.get('journal_percent', Config.JOURNAL_PROPORTION_THRESHOLD, type=float)
         
         # Langkah 4: Panggilan AI #2 - MENGANALISIS daftar yang sudah bersih
         logger.info(f"Memulai analisis BATCH untuk {len(references_list)} referensi (Gaya: {style}).")
@@ -359,7 +360,7 @@ def process_validation_request(request):
         
         batch_results_json = json.loads(analysis_json_match.group(0))
         detailed_results = _process_ai_response(batch_results_json, references_list)
-        summary, recommendations = _generate_summary_and_recommendations(detailed_results, count_validation, style)
+        summary, recommendations = _generate_summary_and_recommendations(detailed_results, count_validation, style, journal_percent_threshold)
 
         return {
             "success": True,

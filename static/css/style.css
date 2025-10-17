@@ -14,7 +14,9 @@
     --dark-text: #2c3e50;
     --border-radius: 12px;
     --shadow: 0 4px 6px rgba(0,0,0,0.1);
-    --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --gradient: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+    /* --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%); */
+
 }
 
 body {
@@ -384,7 +386,8 @@ select:focus {
 .footer {
     text-align: center;
     padding: 2rem;
-    background: var(--primary-color);
+    /* background: var(--primary-color); */
+    background: var(--gradient);
     color: white;
     margin-top: 3rem;
 }

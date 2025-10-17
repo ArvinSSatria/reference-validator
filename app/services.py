@@ -78,7 +78,6 @@ def get_generative_model():
         logger.critical(f"Gagal total menginisialisasi model Gemini: {e}")
         raise e
 
-# --- LOGIKA EKSTRAKSI BARU DENGAN METODE "PEMOTONGAN" ---
 
 def _find_references_section_as_text_block(paragraphs):
     """Menemukan bagian daftar pustaka dan mengembalikannya sebagai SATU BLOK TEKS."""
@@ -148,46 +147,80 @@ def _get_references_from_request(request):
 
 # --- (Fungsi-fungsi analisis sisanya tetap sama: _construct_batch_gemini_prompt, _process_ai_response, dll.) ---
 def _construct_batch_gemini_prompt(references_list, style, year_range):
-    # ... (Kode tidak berubah) ...
+    from datetime import datetime
     year_threshold = datetime.now().year - year_range
     formatted_references = "\n".join([f"{i+1}. {ref}" for i, ref in enumerate(references_list)])
+
     return f"""
-    Anda adalah sistem AI ahli untuk validasi referensi ilmiah. Analisis DAFTAR REFERENSI berikut dan kembalikan hasil sebagai SEBUAH ARRAY JSON TUNGGAL yang valid.
+    Anda adalah sistem AI ahli dalam validasi dan klasifikasi referensi ilmiah lintas gaya sitasi.
+    Analisis DAFTAR REFERENSI berikut dan kembalikan hasil sebagai SEBUAH ARRAY JSON TUNGGAL yang valid.
+
     ATURAN VALIDASI:
-    1. FORMAT: Sesuai gaya sitasi '{style}'.
-    2. KELENGKAPAN: Harus memuat elemen wajib berdasarkan jenisnya:
-        - Untuk 'journal': Penulis, Tahun, Judul Artikel, Nama Jurnal, Volume, Nomor Isu (jika ada), dan **Rentang Halaman**.
-        - Untuk 'book': Penulis/Editor, Tahun, Judul Buku, Penerbit.
-        - Untuk 'conference': Penulis, Tahun, Judul Paper, Nama Konferensi.
-        Beri `false` pada `is_complete` dan sebutkan elemen yang hilang di `missing_elements` jika tidak terpenuhi.
+
+    1. FORMAT: Sesuaikan dengan gaya sitasi '{style}'.  
+       Kenali perbedaan ciri khas 5 gaya utama berikut:
+       - **APA (American Psychological Association)**  
+         • Pola: Penulis, Tahun (dalam tanda kurung). Judul. *Nama Jurnal/Buku*, volume(issue), halaman.  
+         • Contoh: Gupta, A., & Singh, V. K. (2022). On the distribution... *Hardy-Ramanujan Journal*, 45, 110–125.
+
+       - **IEEE (Institute of Electrical and Electronics Engineers)**  
+         • Pola: [Nomor] Inisial Penulis. Nama Belakang, “Judul,” *Nama Jurnal*, vol., no., pp., tahun.  
+         • Ciri khas: nomor urut [1], tanda kutip pada judul, “and” antar penulis, tahun di akhir.
+
+       - **MLA (Modern Language Association)**  
+         • Pola: Penulis. "Judul Artikel." *Nama Jurnal*, vol., no., tahun, halaman.  
+         • Tidak menggunakan tanda kurung pada tahun; lebih banyak tanda titik dan koma.
+
+       - **Chicago (Author–Date system)**  
+         • Pola: Penulis. Tahun. "Judul." *Nama Jurnal* volume(issue): halaman.  
+         • Menekankan nama belakang penulis di awal, tahun setelah nama, dan titik di akhir elemen.
+
+       - **Harvard Style**  
+         • Pola: Penulis & Penulis, Tahun. Judul. *Nama Jurnal/Buku*, volume(issue), halaman.  
+         • Mirip APA tetapi tanpa tanda kurung pada tahun, lebih ringkas.
+
+       Pastikan `is_format_correct` = true hanya jika struktur sesuai gaya '{style}' yang diminta.
+
+    2. KELENGKAPAN: Harus memuat elemen wajib berdasarkan jenis sumber:
+       - Untuk 'journal': Penulis, Tahun, Judul Artikel, Nama Jurnal, Volume, Nomor Isu (jika ada), dan Rentang Halaman.
+       - Untuk 'book': Penulis/Editor, Tahun, Judul Buku, Penerbit.
+       - Untuk 'conference': Penulis, Tahun, Judul Paper, Nama Konferensi.
+       Beri `false` pada `is_complete` dan tambahkan elemen yang hilang ke `missing_elements`.
+
     3. TAHUN TERBIT:
-        - Untuk 'journal' dan 'conference': Dianggap terkini jika >= {year_threshold} ({year_range} tahun terakhir). Beri `false` pada `is_year_recent` jika lebih tua.
-        - Untuk 'book': Aturan tahun lebih longgar. `is_year_recent` bisa `true` bahkan jika lebih tua dari {year_range} tahun, terutama jika itu adalah buku teks fundamental.
-    4. JENIS SUMBER: Harus dari sumber yang kredibel dan otoritatif.
-        ✓ Jurnal peer-reviewed, Buku akademik, Proceeding konferensi
-        ✓ Website dari organisasi pemerintah, akademik, atau internasional yang dikenal (seperti WHO, PBB, universitas)
-        ✗ Blog pribadi, Wikipedia, media sosial, situs komersial
-    DAFTAR REFERENSI YANG DIANALISIS:
+       - Untuk 'journal' dan 'conference': Dianggap terkini jika >= {year_threshold} ({year_range} tahun terakhir).
+       - Untuk 'book': Lebih longgar; buku teks klasik boleh `is_year_recent = true`.
+
+    4. JENIS SUMBER:
+       ✓ Jurnal peer-reviewed, Buku akademik, Prosiding konferensi  
+       ✓ Website lembaga resmi (pemerintah, universitas, organisasi internasional)  
+       ✗ Blog pribadi, Wikipedia, media sosial, situs komersial tidak kredibel  
+       Gunakan hasil deteksi pada `is_scientific_source`.
+
+    DAFTAR REFERENSI YANG AKAN DIANALISIS:
     ---
     {formatted_references}
     ---
+
     INSTRUKSI OUTPUT:
-    Berikan respons HANYA dalam format array JSON. Setiap objek dalam array harus memiliki struktur berikut:
+    Berikan output HANYA dalam format array JSON VALID.
+    Setiap elemen array mewakili satu referensi dengan struktur berikut:
     {{
         "reference_number": <int>,
         "reference_text": "<string>",
-        "parsed_year": <int> atau null,
-        "parsed_journal": "<string nama jurnal, nama seri buku, atau nama penerbit buku>" atau null. Untuk seri buku (book series) yang memiliki nama panjang, pastikan untuk mengekstrak nama seri selengkapnya.",
+        "parsed_year": <int atau null>,
+        "parsed_journal": "<string nama jurnal/buku/penerbit>" atau null,
         "reference_type": "journal/book/conference/website/other",
         "is_format_correct": <boolean>,
         "is_complete": <boolean>,
         "is_year_recent": <boolean>,
         "is_scientific_source": <boolean>,
-        "overall_score": <int, 0-100, nilai berdasarkan kelengkapan DAN kesesuaian format>,
+        "overall_score": <int, 0–100>,
         "missing_elements": ["<string>"],
-        "feedback": "<string>"
+        "feedback": "<string evaluatif, maksimal 3 kalimat>"
     }}
     """
+
 
 # Ganti seluruh fungsi ini di app/services.py
 
@@ -198,7 +231,7 @@ def _process_ai_response(batch_results_json, references_list):
     ACCEPTED_SCIMAGO_TYPES = {'journal', 'book series', 'trade journal', 'conference and proceeding'}
 
     for result_json in batch_results_json:
-        # ... (Parsing data dasar tidak berubah) ...
+        # (Parsing data dasar)        
         ref_num = result_json.get("reference_number", 0)
         ref_text = references_list[ref_num - 1] if 0 < ref_num <= len(references_list) else "Teks tidak ditemukan"
         year_match = re.search(r'(\d{4})', str(result_json.get('parsed_year', '')))
@@ -211,29 +244,42 @@ def _process_ai_response(batch_results_json, references_list):
         scimago_link = None
         quartile = None
         
-        # --- Logika Pencocokan Scimago (dengan override tipe) ---
+        # --- LOGIKA PENCOCOKAN SCIMAGO BARU YANG BERTINGKAT ---
         if journal_name and SCIMAGO_DATA["by_cleaned_title"]:
             cleaned_journal_name = _clean_scimago_title(journal_name)
             
-            # Strategi 1: Pencocokan persis
+            # Strategi 1: Pencocokan persis (paling akurat)
             if cleaned_journal_name in SCIMAGO_DATA["by_cleaned_title"]:
                 is_indexed = True
                 journal_info = SCIMAGO_DATA["by_cleaned_title"][cleaned_journal_name]
+                
+            # Strategi 2: Jika gagal, coba pencocokan "semua kata ada" dengan cek rasio
+            else:
+                journal_words = set(cleaned_journal_name.split())
+                if len(journal_words) > 1:
+                    best_match_info = None
+                    highest_ratio = 0.8 # Harus minimal 80% mirip panjangnya
+
+                    for cleaned_title_db, info in SCIMAGO_DATA["by_cleaned_title"].items():
+                        db_title_words = set(cleaned_title_db.split())
+                        if journal_words.issubset(db_title_words):
+                            # Hitung rasio kemiripan panjang kata
+                            ratio = len(journal_words) / len(db_title_words)
+                            if ratio > highest_ratio:
+                                highest_ratio = ratio
+                                best_match_info = info
+                    
+                    if best_match_info:
+                        is_indexed = True
+                        journal_info = best_match_info
+
+            # Jika berhasil ditemukan (dengan strategi apa pun)
+            if is_indexed:
                 scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
                 quartile = journal_info['quartile']
                 ref_type = journal_info['type'] # Override tipe dari Scimago
-            
-            # Strategi 2: Pencocokan longgar
-            else:
-                for cleaned_title_db, journal_info in SCIMAGO_DATA["by_cleaned_title"].items():
-                    if len(cleaned_journal_name) > 4 and cleaned_journal_name in cleaned_title_db:
-                        is_indexed = True
-                        scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
-                        quartile = journal_info['quartile']
-                        ref_type = journal_info['type'] # Override tipe dari Scimago
-                        break
         
-        # --- LOGIKA KEPUTUSAN BARU YANG LEBIH FLEKSIBEL ---
+        # Logika validitas keseluruhan
         ai_assessment_valid = all([
             result_json.get('is_format_correct', False),
             result_json.get('is_complete', False),
@@ -243,7 +289,6 @@ def _process_ai_response(batch_results_json, references_list):
         is_overall_valid = False
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
         
-        # PERUBAHAN UTAMA DI SINI
         if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
             # Jika terindeks DAN tipenya diterima (journal, book series, dll)
             if ai_assessment_valid:
@@ -260,7 +305,6 @@ def _process_ai_response(batch_results_json, references_list):
 
         detailed_results.append({
             "reference_number": ref_num,
-            # ... (sisa field tidak berubah)
             "reference_text": ref_text, "status": "valid" if is_overall_valid else "invalid",
             "reference_type": ref_type, "parsed_year": parsed_year, "parsed_journal": journal_name,
             "overall_score": overall_score, "is_indexed": is_indexed, "scimago_link": scimago_link, "quartile": quartile,
@@ -292,8 +336,6 @@ def _generate_summary_and_recommendations(detailed_results, count_validation, st
     if not count_validation['is_count_appropriate']: recommendations.append(f"📝 {count_validation['count_message']}")
     if not recommendations: recommendations.append("✅ Referensi sudah memenuhi standar kualitas umum. Siap untuk tahap selanjutnya.")
     return summary, recommendations
-
-# --- FUNGSI UTAMA YANG DIUBAH TOTAL ---
 
 def process_validation_request(request):
     """

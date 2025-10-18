@@ -392,10 +392,24 @@ select:focus {
     margin-top: 3rem;
 }
 
-.tab-buttons {
+/* .tab-buttons {
     display: flex;
     gap: 1rem;
     margin-bottom: 1rem;
+} */
+
+.results-toolbar {
+    display: flex;
+    justify-content: space-between; /* <-- Ini kuncinya */
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap; /* Agar rapi di layar kecil */
+    gap: 1rem;
+}
+
+.tab-buttons, .action-buttons {
+    display: flex;
+    gap: 1rem;
 }
 
 .tab-button {

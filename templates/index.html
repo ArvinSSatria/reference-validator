@@ -68,6 +68,7 @@ Contoh:
                             <option value="IEEE">IEEE (Institute of Electrical and Electronics Engineers)</option>
                             <option value="MLA">MLA (Modern Language Association)</option>
                             <option value="Chicago">Chicago Manual of Style</option>
+                            <option value="Harvard">Harvard Style</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -122,16 +123,25 @@ Contoh:
                     Hasil Detail Validasi
                 </h2>
 
-                <div class="tab-buttons">
-                    <button class="tab-button active" onclick="showTab(event, 'all')">
-                        <i class="fas fa-list"></i> Semua (<span id="allCount">0</span>)
-                    </button>
-                    <button class="tab-button" onclick="showTab(event, 'valid')">
-                        <i class="fas fa-check"></i> Valid (<span id="validCount">0</span>)
-                    </button>
-                    <button class="tab-button" onclick="showTab(event, 'invalid')">
-                        <i class="fas fa-times"></i> Invalid (<span id="invalidCount">0</span>)
-                    </button>
+                <div class="results-toolbar">
+                    <div class="tab-buttons">
+                        <button class="tab-button active" onclick="showTab(event, 'all')">
+                            <i class="fas fa-list"></i> Semua (<span id="allCount">0</span>)
+                        </button>
+                        <button class="tab-button" onclick="showTab(event, 'valid')">
+                            <i class="fas fa-check"></i> Valid (<span id="validCount">0</span>)
+                        </button>
+                        <button class="tab-button" onclick="showTab(event, 'invalid')">
+                            <i class="fas fa-times"></i> Invalid (<span id="invalidCount">0</span>)
+                        </button>
+                    </div>
+
+                    <!-- TOMBOL DOWNLOAD BARU DI SINI -->
+                    <div class="action-buttons">
+                        <button class="tab-button" id="downloadBtn" disabled>
+                            <i class="fas fa-download"></i> Download Hasil
+                        </button>
+                    </div>
                 </div>
 
                 <div id="detailedResults">

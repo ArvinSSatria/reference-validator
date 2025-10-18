@@ -78,26 +78,85 @@ def get_generative_model():
         logger.critical(f"Gagal total menginisialisasi model Gemini: {e}")
         raise e
 
+def _is_likely_reference(text):
+    """
+    Mendeteksi apakah sebuah baris teks kemungkinan adalah entri referensi.
+    """
+    text = text.strip()
+    if len(text) < 20 or len(text) > 500:
+        return False
+    # Dimulai dengan nomor [d], (d), d.
+    if re.match(r'^\[\d+\]|^\(\d+\)|^\d+\.', text):
+        return True
+    # Gaya Penulis APA/Chicago (Nama, I.)
+    if re.match(r'^[A-Z][a-zA-Z\-\']{2,},\s([A-Z]\.\s?)+', text):
+        return True
+    # Dimulai dengan nama Organisasi diikuti tahun
+    if re.match(r'^([A-Z][a-zA-Z\']+\s){2,}\.\s\(\d{4}', text):
+        return True
+    # Mengandung tahun dan DOI
+    if re.search(r'\(\d{4}\)', text) and 'doi.org' in text.lower():
+        return True
+    return False
 
 def _find_references_section_as_text_block(paragraphs):
-    """Menemukan bagian daftar pustaka dan mengembalikannya sebagai SATU BLOK TEKS."""
-    REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
+    REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "reference", "references", "bibliography", "pustaka rujukan"]
+    STOP_HEADINGS = ["lampiran", "appendix", "biodata", "curriculum vitae", "riwayat hidup"]
+
     start_index = -1
+    for i in range(len(paragraphs) - 1, -1, -1):
+        para = paragraphs[i].strip()
+        para_lower = para.lower()
+        if any(h in para_lower for h in REFERENCE_HEADINGS) and len(para.split()) < 5:
+            if i + 1 < len(paragraphs) and _is_likely_reference(paragraphs[i + 1]):
+                start_index = i + 1
+                break
 
-    for i, para in enumerate(paragraphs):
-        # Cari judul yang berdiri sendiri
-        if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para) < 30:
-            start_index = i
-            logger.info(f"Judul Daftar Pustaka ditemukan di paragraf #{i}: '{para}'")
-            break
-    
     if start_index == -1:
-        return None, "Judul bagian 'Daftar Pustaka' tidak ditemukan dalam dokumen."
+        for i in range(len(paragraphs) - 1, -1, -1):
+            para = paragraphs[i].strip()
+            if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para.split()) < 5:
+                start_index = i + 1
+                break
 
-    # Gabungkan semua paragraf setelah judul menjadi satu string besar
-    references_block = "\n".join(paragraphs[start_index + 1:])
-    
-    if not references_block.strip():
+    if start_index == -1:
+        return None, "Bagian 'Daftar Pustaka' tidak ditemukan."
+
+    end_index = len(paragraphs)
+    captured_paragraphs = []
+    consecutive_non_ref_count = 0
+
+    for j in range(start_index, len(paragraphs)):
+        para = paragraphs[j]
+
+        # Jika menemukan judul STOP_HEADINGS, berhenti
+        if any(stop in para.lower() for stop in STOP_HEADINGS):
+            logger.info(f"Berhenti karena menemukan judul stop: '{para}'")
+            break
+
+        # Logika utama: deteksi referensi
+        if _is_likely_reference(para):
+            captured_paragraphs.append(para)
+            consecutive_non_ref_count = 0
+        else:
+            # Tambahkan ke baris sebelumnya (baris lanjutan)
+            if captured_paragraphs:
+                captured_paragraphs[-1] += " " + para.strip()
+            consecutive_non_ref_count += 1
+
+        # 🧠 Tambahkan logika berhenti cerdas di sini:
+        if consecutive_non_ref_count >= 5 or (
+            consecutive_non_ref_count >= 3 and len(para.strip()) < 30
+        ):
+            logger.info("Berhenti menangkap karena pola teks tidak lagi menyerupai referensi.")
+            break
+
+    # 🧹 Bersihkan trailing paragraf yang tidak mengandung tahun atau DOI
+    while captured_paragraphs and not re.search(r'\(\d{4}\)|doi\.org', captured_paragraphs[-1]):
+        captured_paragraphs.pop()
+
+    references_block = "\n".join(captured_paragraphs).strip()
+    if not references_block:
         return None, "Bagian 'Daftar Pustaka' ditemukan, tetapi kosong."
 
     return references_block, None
@@ -113,14 +172,41 @@ def _extract_references_from_docx(file_stream):
         return None, f"Gagal memproses file .docx: {e}"
 
 def _extract_references_from_pdf(file_stream):
-    """Membaca PDF dan mengembalikan daftar pustaka sebagai satu blok teks."""
+    """
+    Membaca PDF dan mengembalikan seluruh blok teks daftar pustaka.
+    Sengaja dibuat 'greedy' untuk menghindari berhenti prematur karena page break.
+    """
     try:
         pdf_bytes = file_stream.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        full_text = "".join(page.get_text("text") + "\n" for page in doc)
+        
+        full_text = "".join(page.get_text("text", sort=True) + "\n" for page in doc)
         doc.close()
+
         paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
-        return _find_references_section_as_text_block(paragraphs)
+        
+        REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
+        start_index = -1
+
+        # Cari judul "Daftar Pustaka" dari depan ke belakang
+        for i, para in enumerate(paragraphs):
+            if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para.split()) < 5:
+                start_index = i
+                logger.info(f"Judul Daftar Pustaka ditemukan di PDF pada paragraf #{i}: '{para}'")
+                break
+        
+        if start_index == -1:
+            return None, "Judul bagian 'Daftar Pustaka' / 'References' tidak ditemukan dalam dokumen PDF."
+
+        # Ambil SEMUA paragraf setelah judul sampai akhir dokumen
+        references_block = "\n".join(paragraphs[start_index + 1:])
+        
+        if not references_block.strip():
+            return None, "Bagian 'Daftar Pustaka' ditemukan, tetapi tampaknya kosong."
+
+        logger.info(f"Berhasil mengekstrak blok teks referensi dari PDF.")
+        return references_block, None
+        
     except Exception as e:
         logger.error(f"Gagal memproses file .pdf: {e}", exc_info=True)
         return None, f"Gagal memproses file .pdf: {e}"
@@ -157,29 +243,19 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
 
     ATURAN VALIDASI:
 
-    1. FORMAT: Sesuaikan dengan gaya sitasi '{style}'.  
-       Kenali perbedaan ciri khas 5 gaya utama berikut:
-       - **APA (American Psychological Association)**  
-         • Pola: Penulis, Tahun (dalam tanda kurung). Judul. *Nama Jurnal/Buku*, volume(issue), halaman.  
-         • Contoh: Gupta, A., & Singh, V. K. (2022). On the distribution... *Hardy-Ramanujan Journal*, 45, 110–125.
+    1. FORMAT: Sesuaikan dengan gaya sitasi '{style}'. Kenali perbedaan ciri khas 5 gaya utama berikut:
+       - **APA (American Psychological Association)**
+         • Ciri Khas: Nama, I. I., & Nama, I. I. (Tahun). Judul artikel. *Nama Jurnal*, *volume*(issue), halaman. Menggunakan '&' dan tanda kurung pada tahun. Judul jurnal dan volume dicetak miring.
+       - **IEEE (Institute of Electrical and Electronics Engineers)**
+         • Ciri Khas: [1] I. I. Nama, "Judul artikel," *Nama Jurnal*, vol. #, no. #, pp. #-#, Bulan. Tahun. Menggunakan nomor urut, judul dalam kutip ganda, dan tahun di akhir.
+       - **MLA (Modern Language Association)**
+         • Ciri Khas: Nama, Nama Depan. "Judul Artikel." *Nama Jurnal*, Volume, Nomor, Tahun, pp. #-#. Menggunakan kutip ganda pada judul, nama depan penulis ditulis penuh, dan tahun tanpa tanda kurung.
+       - **Chicago (Author-Date)**
+         • Ciri Khas: Nama, Nama Depan. Tahun. "Judul Artikel." *Nama Jurnal* volume, no. issue: halaman. Tahun langsung setelah nama penulis, judul dalam kutip ganda.
+       - **Harvard**
+         • Ciri Khas: Nama, I. I. and Nama, I. I. (Tahun) 'Judul Artikel', *Nama Jurnal*, volume(issue), pp. #-#. Sangat mirip APA, tetapi menggunakan 'and' (bukan '&') dan judul artikel dalam tanda kutip tunggal.
 
-       - **IEEE (Institute of Electrical and Electronics Engineers)**  
-         • Pola: [Nomor] Inisial Penulis. Nama Belakang, “Judul,” *Nama Jurnal*, vol., no., pp., tahun.  
-         • Ciri khas: nomor urut [1], tanda kutip pada judul, “and” antar penulis, tahun di akhir.
-
-       - **MLA (Modern Language Association)**  
-         • Pola: Penulis. "Judul Artikel." *Nama Jurnal*, vol., no., tahun, halaman.  
-         • Tidak menggunakan tanda kurung pada tahun; lebih banyak tanda titik dan koma.
-
-       - **Chicago (Author–Date system)**  
-         • Pola: Penulis. Tahun. "Judul." *Nama Jurnal* volume(issue): halaman.  
-         • Menekankan nama belakang penulis di awal, tahun setelah nama, dan titik di akhir elemen.
-
-       - **Harvard Style**  
-         • Pola: Penulis & Penulis, Tahun. Judul. *Nama Jurnal/Buku*, volume(issue), halaman.  
-         • Mirip APA tetapi tanpa tanda kurung pada tahun, lebih ringkas.
-
-       Pastikan `is_format_correct` = true hanya jika struktur sesuai gaya '{style}' yang diminta.
+       Pastikan `is_format_correct` = true hanya jika struktur referensi SANGAT SESUAI dengan ciri khas gaya '{style}' yang diminta.
 
     2. KELENGKAPAN: Harus memuat elemen wajib berdasarkan jenis sumber:
        - Untuk 'journal': Penulis, Tahun, Judul Artikel, Nama Jurnal, Volume, Nomor Isu (jika ada), dan Rentang Halaman.
@@ -189,35 +265,32 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
 
     3. TAHUN TERBIT:
        - Untuk 'journal' dan 'conference': Dianggap terkini jika >= {year_threshold} ({year_range} tahun terakhir).
-       - Untuk 'book': Lebih longgar; buku teks klasik boleh `is_year_recent = true`.
+       - Untuk 'book': Aturan tahun lebih longgar; buku teks klasik atau edisi terbaru boleh `is_year_recent = true`.
 
-    4. JENIS SUMBER:
-       ✓ Jurnal peer-reviewed, Buku akademik, Prosiding konferensi  
-       ✓ Website lembaga resmi (pemerintah, universitas, organisasi internasional)  
-       ✗ Blog pribadi, Wikipedia, media sosial, situs komersial tidak kredibel  
-       Gunakan hasil deteksi pada `is_scientific_source`.
+    4. JENIS SUMBER: Identifikasi sumber sebagai 'journal', 'book', 'conference', 'website', atau 'other'. Gunakan hasil ini untuk `reference_type`.
+       - `is_scientific_source` harus `true` untuk Jurnal peer-reviewed, Buku akademik, Prosiding konferensi, dan Website dari lembaga resmi (pemerintah, universitas, organisasi internasional).
+       - `is_scientific_source` harus `false` untuk Blog pribadi, Wikipedia, media sosial, atau situs komersial tidak kredibel.
 
-    DAFTAR REFERENSI YANG AKAN DIANALISIS:
+    DAFTAR REFERENSI YANG DIANALISIS:
     ---
     {formatted_references}
     ---
 
     INSTRUKSI OUTPUT:
-    Berikan output HANYA dalam format array JSON VALID.
-    Setiap elemen array mewakili satu referensi dengan struktur berikut:
+    Berikan respons HANYA dalam format array JSON. Setiap objek dalam array harus memiliki struktur berikut:
     {{
         "reference_number": <int>,
         "reference_text": "<string>",
-        "parsed_year": <int atau null>,
-        "parsed_journal": "<string nama jurnal/buku/penerbit>" atau null,
+        "parsed_year": <int> atau null,
+        "parsed_journal": "<string nama jurnal, seri buku, atau penerbit>" atau null,
         "reference_type": "journal/book/conference/website/other",
         "is_format_correct": <boolean>,
         "is_complete": <boolean>,
         "is_year_recent": <boolean>,
         "is_scientific_source": <boolean>,
-        "overall_score": <int, 0–100>,
+        "overall_score": <int, 0-100, nilai berdasarkan kelengkapan DAN kesesuaian format>,
         "missing_elements": ["<string>"],
-        "feedback": "<string evaluatif, maksimal 3 kalimat>"
+        "feedback": "<string>"
     }}
     """
 
@@ -301,7 +374,7 @@ def _process_ai_response(batch_results_json, references_list):
             final_feedback += f" Status: INVALID (Sumber ditemukan di ScimagoJR, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
         else:
             # Jika tidak terindeks sama sekali
-            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', tidak ditemukan di database ScimagoJR 2024)."
+            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', namun tidak ditemukan di database ScimagoJR 2024)."
 
         detailed_results.append({
             "reference_number": ref_num,

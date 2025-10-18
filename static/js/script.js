@@ -132,6 +132,8 @@ function displayResults(data) {
 
     resultsSection.style.display = 'block';
     resultsSection.scrollIntoView({ behavior: 'smooth' });
+
+    document.getElementById('downloadBtn').disabled = false;
 }
 
 function displaySummary(summary) {

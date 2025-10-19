@@ -8,8 +8,16 @@ import logging
 from datetime import datetime
 import pandas as pd
 import docx
+import difflib
 from werkzeug.utils import secure_filename
 from config import Config
+import xml.etree.ElementTree as ET
+from app import logger
+import textwrap
+from docx2pdf import convert
+import tempfile
+import shutil
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +29,12 @@ _MODEL_CACHE = None
 
 def _clean_scimago_title(title):
     if not isinstance(title, str): return ""
-    return re.sub(r'[\.,\(\)]', '', title.lower()).strip()
+    s = title.lower()
+    # Ganti SEMUA yang bukan huruf/angka dengan SPASI
+    s = re.sub(r'[^a-z0-9]', ' ', s)
+    # Ganti beberapa spasi menjadi SATU spasi
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
 
 def load_scimago_data():
     global SCIMAGO_DATA
@@ -161,12 +174,74 @@ def _find_references_section_as_text_block(paragraphs):
 
     return references_block, None
 
+def _get_paragraph_text(p):
+     """
+     Mengekstrak teks lengkap dari paragraf, termasuk dari Field Codes (Mendeley).
+     """
+     WORD_NAMESPACE = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+     TEXT = WORD_NAMESPACE + 't'
+     xml_string = p._p.xml
+     try:
+         xml_tree = ET.fromstring(xml_string)
+         text_nodes = xml_tree.findall('.//' + TEXT)
+         if text_nodes:
+             return "".join(node.text for node in text_nodes if node.text)
+     except ET.ParseError:
+         return p.text
+     return ""
+
 def _extract_references_from_docx(file_stream):
-    """Membaca DOCX dan mengembalikan daftar pustaka sebagai satu blok teks."""
+    """
+    Versi FINAL untuk DOCX: Menggunakan logika 'tangkap dan berhenti cerdas'
+    yang andal untuk file terstruktur seperti DOCX, termasuk dari Mendeley.
+    """
     try:
         doc = docx.Document(io.BytesIO(file_stream.read()))
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        return _find_references_section_as_text_block(paragraphs)
+        # Gunakan pembaca XML untuk menangani field codes Mendeley
+        all_paragraphs = [_get_paragraph_text(p).strip() for p in doc.paragraphs]
+        paragraphs = [p for p in all_paragraphs if p] # Filter baris kosong
+
+        REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
+        STOP_HEADINGS = ["lampiran", "appendix", "biodata", "curriculum vitae", "riwayat hidup"]
+        
+        start_index = -1
+        # Cari judul dari depan
+        for i, para in enumerate(paragraphs):
+            if any(h == para.lower() for h in REFERENCE_HEADINGS):
+                # Verifikasi konteks
+                for j in range(i + 1, min(i + 6, len(paragraphs))):
+                    if _is_likely_reference(paragraphs[j]):
+                        start_index = j
+                        break
+                if start_index != -1:
+                    break
+        
+        if start_index == -1:
+            return None, "Bagian 'Daftar Pustaka' tidak ditemukan atau tidak diikuti konten valid di file DOCX."
+
+        # Logika tangkap dan berhenti cerdas
+        captured_paragraphs = []
+        consecutive_non_ref_count = 0
+        for i in range(start_index, len(paragraphs)):
+            para = paragraphs[i]
+            if any(stop == para.lower() for stop in STOP_HEADINGS):
+                break
+            if _is_likely_reference(para):
+                captured_paragraphs.append(para)
+                consecutive_non_ref_count = 0
+            else:
+                if captured_paragraphs:
+                    captured_paragraphs[-1] += " " + para
+                consecutive_non_ref_count += 1
+            if consecutive_non_ref_count >= 5:
+                # Hapus baris-baris non-referensi terakhir yang mungkin tertangkap
+                captured_paragraphs = captured_paragraphs[:-5]
+                break
+        
+        references_block = "\n".join(captured_paragraphs)
+        if not references_block:
+            return None, "Bagian 'Daftar Pustaka' ditemukan di DOCX, tetapi isinya kosong."
+        return references_block, None
     except Exception as e:
         logger.error(f"Gagal memproses file .docx: {e}", exc_info=True)
         return None, f"Gagal memproses file .docx: {e}"
@@ -179,10 +254,8 @@ def _extract_references_from_pdf(file_stream):
     try:
         pdf_bytes = file_stream.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        
         full_text = "".join(page.get_text("text", sort=True) + "\n" for page in doc)
         doc.close()
-
         paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
         
         REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
@@ -211,22 +284,30 @@ def _extract_references_from_pdf(file_stream):
         logger.error(f"Gagal memproses file .pdf: {e}", exc_info=True)
         return None, f"Gagal memproses file .pdf: {e}"
 
-def _get_references_from_request(request):
+def _get_references_from_request(request, file_stream=None):
     """Mengambil input sebagai SATU BLOK TEKS, baik dari file maupun textarea."""
     if 'file' in request.files and request.files['file'].filename:
-        file = request.files['file']
-        filename = secure_filename(file.filename)
+        # --- PERBAIKAN UTAMA DI SINI ---
         
+        # Selalu ambil nama file dari request asli
+        original_file_object = request.files['file']
+        filename = secure_filename(original_file_object.filename)
+
+        # Prioritaskan stream dari file yang sudah disimpan (untuk dibaca isinya)
+        # Jika tidak ada (kasus input teks), baru ambil dari request upload.
+        stream_to_read = file_stream or original_file_object
+        
+        # Validasi ekstensi
         if not ('.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS):
             return None, "Format file tidak didukung."
 
+        # Panggil fungsi yang sesuai berdasarkan NAMA FILE
         if filename.lower().endswith('.docx'):
-            return _extract_references_from_docx(file)
+            return _extract_references_from_docx(stream_to_read)
         elif filename.lower().endswith('.pdf'):
-            return _extract_references_from_pdf(file)
-    
+            return _extract_references_from_pdf(stream_to_read)
+            
     if 'text' in request.form and request.form['text'].strip():
-        # Jika input dari textarea, itu sudah menjadi blok teks
         return request.form['text'].strip(), None
         
     return None, "Tidak ada input yang diberikan."
@@ -237,74 +318,60 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
     year_threshold = datetime.now().year - year_range
     formatted_references = "\n".join([f"{i+1}. {ref}" for i, ref in enumerate(references_list)])
 
+    style_examples = {
+        "APA": "Contoh APA: Smith, J. (2023). Judul artikel. *Nama Jurnal*, *10*(2), 1-10.",
+        "Harvard": "Contoh Harvard: Smith, J. (2023) 'Judul artikel', *Nama Jurnal*, 10(2), pp. 1-10.",
+        "IEEE": "Contoh IEEE: [1] J. Smith, \"Judul artikel,\" *Nama Jurnal*, vol. 10, no. 2, pp. 1-10, Jan. 2023.",
+        "MLA": "Contoh MLA: Smith, John. \"Judul Artikel.\" *Nama Jurnal*, vol. 10, no. 2, 2023, pp. 1-10.",
+        "Chicago": "Contoh Chicago: Smith, John. 2023. \"Judul Artikel.\" *Nama Jurnal* 10 (2): 1-10."
+    }
+    
     return f"""
-    Anda adalah sistem AI ahli dalam validasi dan klasifikasi referensi ilmiah lintas gaya sitasi.
-    Analisis DAFTAR REFERENSI berikut dan kembalikan hasil sebagai SEBUAH ARRAY JSON TUNGGAL yang valid.
+    Anda adalah AI ahli analisis daftar pustaka. Jawab SEMUA feedback dalam BAHASA INDONESIA.
+    Analisis setiap referensi berikut berdasarkan gaya sitasi: **{style}**.
 
-    ATURAN VALIDASI:
+    PROSES UNTUK SETIAP REFERENSI:
+    1.  **Ekstrak Elemen:** Ekstrak Penulis, Tahun, Judul, dan Nama Jurnal/Sumber.
+    2.  **Identifikasi Tipe:** Tentukan `reference_type` ('journal', 'book', 'conference', 'website', 'other').
+    3.  **Evaluasi Kelengkapan (`is_complete`):** Pastikan elemen wajib ada (Penulis, Tahun, Judul, Sumber, Halaman untuk jurnal). Jika tidak, `is_complete` = false.
+    4.  **Evaluasi Tahun (`is_year_recent`):** `is_year_recent` = true jika tahun >= {year_threshold} (kecuali untuk buku fundamental).
+    5.  **Evaluasi Format (`is_format_correct`):**
+        - Fokus utama pada **STRUKTUR dan URUTAN ELEMEN** (Penulis-Tahun-Judul) sesuai gaya '{style}'.
+        - Beri `is_format_correct` = **true** jika STRUKTUR UTAMA sudah benar, meskipun ada kesalahan styling minor.
+        - Jika ada saran perbaikan styling (seperti cetak miring/italics pada nama jurnal atau volume), sebutkan saran tersebut di `feedback` tanpa membuat `is_format_correct` menjadi false.
+        - Beri `is_format_correct` = **false** hanya jika ada kesalahan STRUKTUR FATAL (misal: urutan elemen salah, tanda kurung/kutip salah total).
+    6.  **Evaluasi Sumber (`is_scientific_source`):** Tentukan `true` untuk sumber ilmiah, `false` untuk non-ilmiah.
 
-    1. FORMAT: Sesuaikan dengan gaya sitasi '{style}'. Kenali perbedaan ciri khas 5 gaya utama berikut:
-       - **APA (American Psychological Association)**
-         • Ciri Khas: Nama, I. I., & Nama, I. I. (Tahun). Judul artikel. *Nama Jurnal*, *volume*(issue), halaman. Menggunakan '&' dan tanda kurung pada tahun. Judul jurnal dan volume dicetak miring.
-       - **IEEE (Institute of Electrical and Electronics Engineers)**
-         • Ciri Khas: [1] I. I. Nama, "Judul artikel," *Nama Jurnal*, vol. #, no. #, pp. #-#, Bulan. Tahun. Menggunakan nomor urut, judul dalam kutip ganda, dan tahun di akhir.
-       - **MLA (Modern Language Association)**
-         • Ciri Khas: Nama, Nama Depan. "Judul Artikel." *Nama Jurnal*, Volume, Nomor, Tahun, pp. #-#. Menggunakan kutip ganda pada judul, nama depan penulis ditulis penuh, dan tahun tanpa tanda kurung.
-       - **Chicago (Author-Date)**
-         • Ciri Khas: Nama, Nama Depan. Tahun. "Judul Artikel." *Nama Jurnal* volume, no. issue: halaman. Tahun langsung setelah nama penulis, judul dalam kutip ganda.
-       - **Harvard**
-         • Ciri Khas: Nama, I. I. and Nama, I. I. (Tahun) 'Judul Artikel', *Nama Jurnal*, volume(issue), pp. #-#. Sangat mirip APA, tetapi menggunakan 'and' (bukan '&') dan judul artikel dalam tanda kutip tunggal.
-
-       Pastikan `is_format_correct` = true hanya jika struktur referensi SANGAT SESUAI dengan ciri khas gaya '{style}' yang diminta.
-
-    2. KELENGKAPAN: Harus memuat elemen wajib berdasarkan jenis sumber:
-       - Untuk 'journal': Penulis, Tahun, Judul Artikel, Nama Jurnal, Volume, Nomor Isu (jika ada), dan Rentang Halaman.
-       - Untuk 'book': Penulis/Editor, Tahun, Judul Buku, Penerbit.
-       - Untuk 'conference': Penulis, Tahun, Judul Paper, Nama Konferensi.
-       Beri `false` pada `is_complete` dan tambahkan elemen yang hilang ke `missing_elements`.
-
-    3. TAHUN TERBIT:
-       - Untuk 'journal' dan 'conference': Dianggap terkini jika >= {year_threshold} ({year_range} tahun terakhir).
-       - Untuk 'book': Aturan tahun lebih longgar; buku teks klasik atau edisi terbaru boleh `is_year_recent = true`.
-
-    4. JENIS SUMBER: Identifikasi sumber sebagai 'journal', 'book', 'conference', 'website', atau 'other'. Gunakan hasil ini untuk `reference_type`.
-       - `is_scientific_source` harus `true` untuk Jurnal peer-reviewed, Buku akademik, Prosiding konferensi, dan Website dari lembaga resmi (pemerintah, universitas, organisasi internasional).
-       - `is_scientific_source` harus `false` untuk Blog pribadi, Wikipedia, media sosial, atau situs komersial tidak kredibel.
-
-    DAFTAR REFERENSI YANG DIANALISIS:
+    DAFTAR REFERENSI:
     ---
     {formatted_references}
     ---
 
     INSTRUKSI OUTPUT:
-    Berikan respons HANYA dalam format array JSON. Setiap objek dalam array harus memiliki struktur berikut:
+    Kembalikan sebagai ARRAY JSON TUNGGAL dengan struktur berikut:
     {{
         "reference_number": <int>,
-        "reference_text": "<string>",
-        "parsed_year": <int> atau null,
-        "parsed_journal": "<string nama jurnal, seri buku, atau penerbit>" atau null,
+        "parsed_authors": ["Penulis 1"],
+        "parsed_year": <int>,
+        "parsed_title": "<string>",
+        "parsed_journal": "<string>",
         "reference_type": "journal/book/conference/website/other",
         "is_format_correct": <boolean>,
         "is_complete": <boolean>,
         "is_year_recent": <boolean>,
         "is_scientific_source": <boolean>,
-        "overall_score": <int, 0-100, nilai berdasarkan kelengkapan DAN kesesuaian format>,
-        "missing_elements": ["<string>"],
-        "feedback": "<string>"
+        "missing_elements": ["elemen_hilang"],
+        "feedback": "<Saran perbaikan dalam BAHASA INDONESIA, atau 'OK' jika sempurna>"
     }}
     """
-
-
-# Ganti seluruh fungsi ini di app/services.py
 
 def _process_ai_response(batch_results_json, references_list):
     detailed_results = []
     
-    # --- DAFTAR TIPE YANG DIANGGAP VALID DARI SCIMAGO ---
     ACCEPTED_SCIMAGO_TYPES = {'journal', 'book series', 'trade journal', 'conference and proceeding'}
 
     for result_json in batch_results_json:
-        # (Parsing data dasar)        
+        # (Parsing data dasar tidak berubah)
         ref_num = result_json.get("reference_number", 0)
         ref_text = references_list[ref_num - 1] if 0 < ref_num <= len(references_list) else "Teks tidak ditemukan"
         year_match = re.search(r'(\d{4})', str(result_json.get('parsed_year', '')))
@@ -316,43 +383,56 @@ def _process_ai_response(batch_results_json, references_list):
         is_indexed = False
         scimago_link = None
         quartile = None
+        journal_info = None
         
-        # --- LOGIKA PENCOCOKAN SCIMAGO BARU YANG BERTINGKAT ---
         if journal_name and SCIMAGO_DATA["by_cleaned_title"]:
             cleaned_journal_name = _clean_scimago_title(journal_name)
-            
-            # Strategi 1: Pencocokan persis (paling akurat)
+
+            # Strategi 1: Coba pencocokan persis
             if cleaned_journal_name in SCIMAGO_DATA["by_cleaned_title"]:
                 is_indexed = True
                 journal_info = SCIMAGO_DATA["by_cleaned_title"][cleaned_journal_name]
-                
-            # Strategi 2: Jika gagal, coba pencocokan "semua kata ada" dengan cek rasio
+            
+            # Strategi 2: Pencocokan fuzzy
             else:
-                journal_words = set(cleaned_journal_name.split())
-                if len(journal_words) > 1:
+                query_words = set(cleaned_journal_name.split())
+                if len(query_words) > 0:
                     best_match_info = None
-                    highest_ratio = 0.8 # Harus minimal 80% mirip panjangnya
+                    highest_score = 0.55  # lebih toleran
+                    best_match_title = ""
 
-                    for cleaned_title_db, info in SCIMAGO_DATA["by_cleaned_title"].items():
-                        db_title_words = set(cleaned_title_db.split())
-                        if journal_words.issubset(db_title_words):
-                            # Hitung rasio kemiripan panjang kata
-                            ratio = len(journal_words) / len(db_title_words)
-                            if ratio > highest_ratio:
-                                highest_ratio = ratio
-                                best_match_info = info
-                    
-                    if best_match_info:
-                        is_indexed = True
-                        journal_info = best_match_info
+                    for title_db, info in SCIMAGO_DATA["by_cleaned_title"].items():
+                        db_words = set(title_db.split())
+                        if not db_words: continue
 
-            # Jika berhasil ditemukan (dengan strategi apa pun)
-            if is_indexed:
-                scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
-                quartile = journal_info['quartile']
-                ref_type = journal_info['type'] # Override tipe dari Scimago
+                        # 1) Exact subset: semua kata query ada di db (kuat)
+                        if query_words.issubset(db_words) or db_words.issubset(query_words):
+                            best_match_info = info
+                            best_match_title = title_db
+                            highest_score = 1.0
+                            break
+
+                        # 2) Jaccard-like overlap
+                        common_words = query_words.intersection(db_words)
+                        jaccard = len(common_words) / len(query_words.union(db_words))
+
+                        # 3) Sequence similarity on full cleaned names
+                        seq_ratio = difflib.SequenceMatcher(None, cleaned_journal_name, title_db).ratio()
+
+                        # Combine scores, bias seq_ratio slightly
+                        score = max(jaccard, seq_ratio * 0.9)
+
+                        if score > highest_score:
+                            highest_score = score
+                            best_match_info = info
+                            best_match_title = title_db
+
+        # --- (Sisa kode tidak berubah) ---
+        if is_indexed and journal_info:
+            scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
+            quartile = journal_info['quartile']
+            ref_type = journal_info['type']
         
-        # Logika validitas keseluruhan
         ai_assessment_valid = all([
             result_json.get('is_format_correct', False),
             result_json.get('is_complete', False),
@@ -363,17 +443,14 @@ def _process_ai_response(batch_results_json, references_list):
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
         
         if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
-            # Jika terindeks DAN tipenya diterima (journal, book series, dll)
             if ai_assessment_valid:
                 is_overall_valid = True
                 final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' terindeks di ScimagoJR dan memenuhi kriteria kualitas)."
             else:
                 final_feedback += f" Status: INVALID (Meskipun sumber terindeks, format/kelengkapan/tahun tidak memenuhi syarat.)"
         elif is_indexed:
-            # Jika terindeks tapi tipenya TIDAK diterima (misal 'other')
             final_feedback += f" Status: INVALID (Sumber ditemukan di ScimagoJR, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
         else:
-            # Jika tidak terindeks sama sekali
             final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', namun tidak ditemukan di database ScimagoJR 2024)."
 
         detailed_results.append({
@@ -410,12 +487,12 @@ def _generate_summary_and_recommendations(detailed_results, count_validation, st
     if not recommendations: recommendations.append("✅ Referensi sudah memenuhi standar kualitas umum. Siap untuk tahap selanjutnya.")
     return summary, recommendations
 
-def process_validation_request(request):
+def process_validation_request(request, saved_file_stream=None):
     """
     Fungsi orkestrator utama dengan metode "pemotongan" AI.
     """
     # Langkah 1: Dapatkan SELURUH BLOK TEKS daftar pustaka dari input
-    references_block, error = _get_references_from_request(request)
+    references_block, error = _get_references_from_request(request, saved_file_stream)
     if error: return {"error": error}
     if not references_block: return {"error": "Tidak ada konten referensi yang dapat diproses."}
     
@@ -487,3 +564,193 @@ def process_validation_request(request):
     except Exception as e:
         logger.error(f"Error kritis saat pemrosesan AI: {e}", exc_info=True)
         return {"error": f"Terjadi kesalahan saat pemrosesan AI. Detail: {e}"}
+
+# Ganti seluruh fungsi ini di app/services.py
+
+def create_annotated_pdf_from_file(original_filepath, validation_results):
+    """
+    Versi Final Paling Andal: Menangani nama jurnal yang terpotong antar baris
+    dan memperbaiki bug 'bad quads entry'.
+    """
+    try:
+        pdf = fitz.open(original_filepath)
+        detailed_results = validation_results.get('detailed_results', [])
+        highlighted_ref_numbers = set()
+
+        start_annotating = False
+        for page in pdf:
+            if not start_annotating:
+                page_text_lower = page.get_text("text").lower()
+                if any(h in page_text_lower for h in ["daftar pustaka", "references"]):
+                    start_annotating = True
+            if not start_annotating:
+                continue
+
+            words_on_page = page.get_text("words")
+
+            # Bangun daftar token yang 'diperluas' sehingga kata-kata seperti
+            # 'Hardy-Ramanujan' (yang muncul sebagai satu word entry) dipecah
+            # menjadi token ['hardy', 'ramanujan'] dan tetap dipetakan ke kotak kata asli.
+            expanded_tokens = []  # list of dicts: {token, word_index, rect}
+            for wi, w in enumerate(words_on_page):
+                cleaned = _clean_scimago_title(w[4])
+                if not cleaned:
+                    continue
+                parts = cleaned.split()
+                for part in parts:
+                    expanded_tokens.append({
+                        'token': part,
+                        'word_index': wi,
+                        'rect': fitz.Rect(w[:4])
+                    })
+
+            for result in detailed_results:
+                ref_num = result.get('reference_number')
+                if not result.get('is_indexed') or ref_num in highlighted_ref_numbers:
+                    continue
+
+                journal_name = result.get('parsed_journal')
+                if not journal_name or len(journal_name) < 5:
+                    continue
+
+                search_tokens = _clean_scimago_title(journal_name).split()
+                if not search_tokens:
+                    continue
+
+                plen = len(search_tokens)
+                # Cari urutan token di halaman pada daftar token yang diperluas
+                page_token_list = [t['token'] for t in expanded_tokens]
+                for i in range(len(page_token_list) - plen + 1):
+                    if page_token_list[i:i+plen] == search_tokens:
+                        # --- PERBAIKAN UTAMA DI SINI ---
+
+                        # Ambil indeks kata asli (word_index) untuk setiap token yang cocok
+                        matched_word_indices = [expanded_tokens[i + k]['word_index'] for k in range(plen)]
+                        # Hapus duplikat sambil mempertahankan urutan (kasus 'hardy ramanujan' di satu word)
+                        unique_word_indices = []
+                        for idx in matched_word_indices:
+                            if not unique_word_indices or unique_word_indices[-1] != idx:
+                                unique_word_indices.append(idx)
+
+                        # Ambil kotak untuk setiap kata asli yang unik
+                        matched_word_rects = [fitz.Rect(words_on_page[idx][:4]) for idx in unique_word_indices]
+
+                        # Tandai referensi ini agar tidak diproses lagi
+                        highlighted_ref_numbers.add(ref_num)
+
+                        journal_type = result.get('reference_type') or result.get('type') or result.get('scimago_type') or 'N/A'
+                        comment_content = (f"Jurnal: {result.get('parsed_journal', 'N/A')}\n"
+                                           f"Tipe: {journal_type}\n"
+                                           f"Kuartil: {result.get('quartile', 'N/A')}\n"
+                                           f"Link: {result.get('scimago_link', 'N/A')}")
+
+                        # Buat highlight terpisah untuk setiap kata agar tidak membuat
+                        # bounding box besar yang menutupi keseluruhan referensi ketika
+                        # kata-kata nama jurnal berada di baris yang berbeda.
+                        first_rect_for_popup = None
+                        for wi, rect in enumerate(matched_word_rects):
+                            try:
+                                # Safety: pastikan rect tidak nol-lebar/tinggi (beberapa PDF punya kotak 0)
+                                if rect.x0 == rect.x1 or rect.y0 == rect.y1:
+                                    # Perbaiki sedikit agar tidak jadi "bad quads entry"
+                                    rect = fitz.Rect(rect.x0, rect.y0, rect.x0 + 1, rect.y0 + 1)
+
+                                # Simpan rect pertama untuk menempatkan popup note
+                                if first_rect_for_popup is None:
+                                    first_rect_for_popup = rect
+
+                                # Gunakan highlight per-kata
+                                h = page.add_highlight_annot(rect)
+                                h.set_colors(stroke=(1, 1, 0))
+                                # Jangan set content/title pada tiap highlight untuk mencegah duplikasi
+                                h.update()
+                            except Exception as ex:
+                                # Log dan lanjutkan jika satu kata gagal dianotasi
+                                logger.warning(f"Gagal membuat highlight untuk kata pada ref {ref_num}: {ex}")
+
+                        # Tambahkan satu text/pop-up annotation (sticky note) yang berisi komentar lengkap
+                        # Tempatkan popup sedikit di atas/kiri dari kata pertama jika tersedia
+                        try:
+                            if first_rect_for_popup:
+                                # Posisi note di luar sedikit dari kotak kata pertama
+                                popup_pos = fitz.Point(first_rect_for_popup.x0, max(0, first_rect_for_popup.y0 - 10))
+                                note = page.add_text_annot(popup_pos, comment_content)
+                                note.set_info(title=f"Terindeks Scimago ({result.get('quartile', 'N/A')})")
+                                note.update()
+                        except Exception as ex:
+                            logger.warning(f"Gagal membuat popup note untuk ref {ref_num}: {ex}")
+
+                        # Hentikan pencarian untuk result ini karena sudah ditemukan
+                        break
+        
+        pdf_bytes = pdf.tobytes()
+        pdf.close()
+        
+        return pdf_bytes, None
+
+    except Exception as e:
+        logger.error(f"Error di create_annotated_pdf_from_file: {e}", exc_info=True)
+        return None, f"Gagal membuat anotasi pada file PDF asli."
+    
+def convert_docx_to_pdf(docx_path):
+    """
+    Mengonversi file DOCX ke PDF dan mengembalikan path ke file PDF baru.
+    """
+    try:
+        # Tentukan path output. Simpan di folder yang sama dengan nama yang sama tapi ekstensi .pdf
+        pdf_path = os.path.splitext(docx_path)[0] + ".pdf"
+        
+        logger.info(f"Mengonversi '{docx_path}' ke '{pdf_path}'...")
+        try:
+            convert(docx_path, pdf_path)
+        except Exception as primary_ex:
+            # Tangani kasus umum COM CoInitialize error (docx2pdf via MS Word)
+            msg = str(primary_ex)
+            logger.warning(f"docx2pdf gagal: {msg}")
+            # Jika error berisi CoInitialize, coba inisialisasi COM secara eksplisit (Windows)
+            if 'CoInitialize' in msg or "CoInitialize has not been called" in msg:
+                try:
+                    import pythoncom
+                    pythoncom.CoInitialize()
+                    logger.info("Memanggil pythoncom.CoInitialize() dan mencoba lagi konversi DOCX...")
+                    convert(docx_path, pdf_path)
+                except Exception as com_ex:
+                    logger.warning(f"Gagal setelah CoInitialize retry: {com_ex}")
+                    # Coba fallback ke LibreOffice/soffice jika tersedia
+                    if shutil.which('soffice'):
+                        try:
+                            logger.info("Mencoba konversi menggunakan LibreOffice (soffice)...")
+                            subprocess.check_call([shutil.which('soffice'), '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), docx_path])
+                        except Exception as lo_ex:
+                            logger.error(f"Fallback LibreOffice gagal: {lo_ex}", exc_info=True)
+                            raise com_ex
+                    else:
+                        raise com_ex
+            else:
+                # Jika bukan CoInitialize, coba fallback ke LibreOffice
+                if shutil.which('soffice'):
+                    try:
+                        logger.info("docx2pdf gagal, mencoba fallback LibreOffice (soffice)...")
+                        subprocess.check_call([shutil.which('soffice'), '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(pdf_path), docx_path])
+                    except Exception as lo_ex:
+                        logger.error(f"Fallback LibreOffice gagal: {lo_ex}", exc_info=True)
+                        raise primary_ex
+                else:
+                    raise primary_ex
+        
+        if os.path.exists(pdf_path):
+            logger.info("Konversi DOCX ke PDF berhasil.")
+            return pdf_path, None
+        else:
+            return None, "Konversi DOCX ke PDF gagal, file output tidak dibuat."
+            
+    except Exception as e:
+        # Ini sering terjadi jika MS Word tidak terinstal atau ada masalah COM
+        logger.error(f"Error saat mengonversi DOCX ke PDF: {e}", exc_info=True)
+        # Berikan pesan yang lebih membantu termasuk kemungkinan solusi
+        help_msg = (
+            "Gagal mengonversi DOCX ke PDF. Jika Anda menggunakan Windows, pastikan Microsoft Word terinstal "
+            "dan aplikasi berjalan setidaknya sekali. Jika server/headless, pasang LibreOffice dan coba lagi. "
+            f"Detail teknis: {e}"
+        )
+        return None, help_msg

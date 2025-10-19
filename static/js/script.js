@@ -238,7 +238,6 @@ function createReferenceItemHTML(result, index) {
             <div class="reference-status ${statusClass === 'valid' ? 'status-valid' : 'status-invalid'}">
                 <i class="${statusIcon}"></i>
                 Referensi #${result.reference_number || index + 1} - ${statusText}
-                ${typeof result.overall_score !== 'undefined' ? `(Skor AI: ${result.overall_score}/100)` : ''}
             </div>
             <div class="reference-text">${result.reference_text}</div>
             
@@ -284,4 +283,10 @@ textInput.addEventListener('input', () => {
         fileInput.value = '';
         fileName.innerHTML = '';
     }
+});
+
+const downloadBtn = document.getElementById('downloadBtn');
+downloadBtn.addEventListener('click', () => {
+    // Cukup buka URL endpoint GET di tab baru
+    window.open('/api/download_report', '_blank');
 });

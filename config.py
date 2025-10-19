@@ -16,6 +16,8 @@ class Config:
     ALLOWED_EXTENSIONS = {'docx', 'pdf'}
     SCIMAGO_FILE_PATH = 'scimagojr 2024.csv'
     
+    UPLOAD_FOLDER = 'uploads'
+    
     # Konfigurasi API
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 

@@ -478,7 +478,8 @@ def _generate_summary_and_recommendations(detailed_results, count_validation, st
     summary = {
         "total_references": total, "valid_references": valid_count, "invalid_references": total - valid_count,
         "processing_errors": 0, "validation_rate": round((valid_count / total) * 100, 1) if total > 0 else 0,
-        "count_validation": count_validation, "distribution_analysis": distribution, "style_used": style
+        "count_validation": count_validation, "distribution_analysis": distribution, "style_used": style,
+        "journal_percent_threshold": journal_percent_threshold
     }
     recommendations = []
     if summary['validation_rate'] < 70: recommendations.append("⚠️ Tingkat validitas rendah. Banyak referensi perlu perbaikan format atau kelengkapan.")
@@ -576,8 +577,28 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
         pdf = fitz.open(original_filepath)
         detailed_results = validation_results.get('detailed_results', [])
         highlighted_ref_numbers = set()
+        added_references_summary = False
 
         start_annotating = False
+        def _looks_like_reference_line(text):
+            # Simple heuristic: contains a 4-digit year or starts with numbering
+            if not text or not isinstance(text, str):
+                return False
+            if re.search(r'\(\d{4}\)|\d{4}', text):
+                return True
+            if re.match(r'^(\[\d+\]|\(\d+\)|\d+\.)', text.strip()):
+                return True
+            return False
+
+        def _heading_followed_by_reference(page_words, start_idx):
+            # Look ahead a few words/lines after the heading to see if there's a likely reference
+            # Build small context text from the following 30 words
+            texts = []
+            for j in range(start_idx + 1, min(len(page_words), start_idx + 60)):
+                texts.append(page_words[j][4])
+            context = ' '.join(texts)
+            return _looks_like_reference_line(context)
+
         for page in pdf:
             if not start_annotating:
                 page_text_lower = page.get_text("text").lower()
@@ -587,6 +608,153 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                 continue
 
             words_on_page = page.get_text("words")
+
+            # Jika ini halaman tempat judul 'Daftar Pustaka' ditemukan dan kita belum
+            # menambahkan ringkasan, cari posisi judul dan tambahkan highlight + note
+            if start_annotating and not added_references_summary:
+                try:
+                    # Build lines from words_on_page by grouping words with similar Y coordinates.
+                    # This lets us detect a standalone heading line (not an inline phrase in a paragraph)
+                    heading_tokens = ['daftar pustaka', 'references']
+                    lines = []
+                    for wi, w in enumerate(words_on_page):
+                        x0, y0, x1, y1, txt = w[0], w[1], w[2], w[3], w[4]
+                        if not txt or not txt.strip():
+                            continue
+                        if not lines:
+                            lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
+                        else:
+                            # if vertical gap is small, consider same line
+                            if abs(y0 - lines[-1]['y']) <= 3:
+                                lines[-1]['words'].append(txt)
+                                lines[-1]['word_indices'].append(wi)
+                                lines[-1]['rects'].append(fitz.Rect(w[:4]))
+                            else:
+                                lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
+
+                    heading_idx = None
+                    heading_rects = []
+                    for li, line in enumerate(lines):
+                        line_text = ' '.join(line['words']).strip().lower()
+                        for ht in heading_tokens:
+                            # Normalize line text (remove punctuation) for strict comparison
+                            norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
+                            if norm_line == ht:
+                                # exact line match
+                                # Check next few lines for reference-like patterns
+                                context = []
+                                for j in range(li+1, min(len(lines), li+7)):
+                                    context.append(' '.join(lines[j]['words']))
+                                context_text = ' '.join(context)
+                                if _looks_like_reference_line(context_text):
+                                    heading_idx = li
+                                    heading_rects = line['rects']
+                                    break
+                            else:
+                                # Allow two-line heading like 'daftar' + 'pustaka'
+                                if li+1 < len(lines):
+                                    next_line_text = ' '.join(lines[li+1]['words']).strip().lower()
+                                    norm_next = re.sub(r'[^a-z0-9\s]', '', next_line_text)
+                                    if f"{norm_line} {norm_next}".strip() == ht:
+                                        context = []
+                                        for j in range(li+2, min(len(lines), li+8)):
+                                            context.append(' '.join(lines[j]['words']))
+                                        context_text = ' '.join(context)
+                                        if _looks_like_reference_line(context_text):
+                                            heading_idx = li
+                                            heading_rects = line['rects'] + lines[li+1]['rects']
+                                            break
+                        if heading_idx is not None:
+                            break
+
+                    # Jika heading ditemukan, buat highlight/per-kata highlight dan sebuah note
+                    if heading_rects:
+                        # Gabungkan rects menjadi satu area untuk highlight heading
+                        heading_full = fitz.Rect(heading_rects[0])
+                        for r in heading_rects[1:]:
+                            heading_full.include_rect(r)
+
+                        try:
+                            h = page.add_highlight_annot(heading_full)
+                            h.set_colors(stroke=(1, 1, 0))
+                            h.update()
+                        except Exception:
+                            # fallback: add a rectangle annotation
+                            try:
+                                r_annot = page.add_rect_annot(heading_full)
+                                r_annot.set_colors(stroke=(1,1,0), fill=(1,1,0))
+                                r_annot.set_opacity(0.2)
+                                r_annot.update()
+                            except Exception:
+                                logger.debug("Gagal menambahkan highlight heading, lanjut tanpa highlight")
+
+                        # Siapkan ringkasan validasi berdasarkan validation_results dan detailed_results
+                        summary = validation_results.get('summary', {})
+                        total = summary.get('total_references', len(detailed_results))
+                        journal_count = sum(1 for r in detailed_results if r.get('reference_type') == 'journal')
+                        non_journal_count = total - journal_count
+                        journal_pct = round((journal_count / total) * 100, 1) if total > 0 else 0.0
+                        non_journal_pct = round((non_journal_count / total) * 100, 1) if total > 0 else 0.0
+
+                        # Terindeks SJR (is_indexed True pada detailed_results)
+                        sjr_count = sum(1 for r in detailed_results if r.get('is_indexed'))
+                        sjr_pct = round((sjr_count / total) * 100, 1) if total > 0 else 0.0
+
+                        distrib = summary.get('distribution_analysis', {})
+                        meets_journal_req = distrib.get('meets_journal_requirement')
+                        journal_percentage = distrib.get('journal_percentage')
+                        # Try to get threshold if provided
+                        # Ambil threshold yang dipakai (jika disertakan di summary dari proses utama)
+                        raw_threshold = validation_results.get('journal_percent_threshold')
+                        if raw_threshold is None:
+                            raw_threshold = validation_results.get('summary', {}).get('journal_percent_threshold')
+                        if isinstance(raw_threshold, (int, float)):
+                            threshold = f"{raw_threshold}%"
+                        else:
+                            threshold = str(raw_threshold or 'N/A')
+
+                        meets_text = 'VALID' if meets_journal_req else 'INVALID'
+                        if isinstance(journal_percentage, (int, float)):
+                            jp_display = f"{journal_percentage:.1f}%"
+                        else:
+                            jp_display = f"{journal_pct:.1f}%"
+
+                        # Year validity
+                        year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
+                        year_not_approved = total - year_approved
+
+                        # Quartile counts
+                        q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
+                        for r in detailed_results:
+                            q = r.get('quartile')
+                            if q in ('Q1','Q2','Q3','Q4'):
+                                q_counts[q] += 1
+                            else:
+                                q_counts['Not Found'] += 1
+
+                        summary_content = (
+                            f"Ringkasan validasi:\n"
+                            f"Total Referensi: {total}\n"
+                            f"Artikel Jurnal: {journal_count} ({journal_pct}%)\n"
+                            f"Artikel Non-jurnal: {non_journal_count} ({non_journal_pct}%)\n"
+                            f"Terindeks SJR: {sjr_count} ({sjr_pct}%)\n"
+                            f"Min. Persyaratan Jurnal: {meets_text} ({jp_display} / {threshold})\n"
+                            f"Validitas Tahun: {year_approved} approved / {year_not_approved} not approved\n"
+                            f"Kuartil: Q1: {q_counts['Q1']} | Q2: {q_counts['Q2']} | Q3: {q_counts['Q3']} | Q4: {q_counts['Q4']} | Tidak ditemukan: {q_counts['Not Found']}"
+                        )
+
+                        # Tambahkan satu popup note di atas heading
+                        try:
+                            popup_pos = fitz.Point(heading_full.x0, max(0, heading_full.y0 - 12))
+                            note = page.add_text_annot(popup_pos, summary_content)
+                            note.set_info(title="Ringkasan Validasi Referensi")
+                            note.update()
+                        except Exception as ex:
+                            logger.warning(f"Gagal menambahkan summary note pada heading: {ex}")
+
+                        added_references_summary = True
+                except Exception as ex:
+                    logger.warning(f"Error saat mencoba menambahkan highlight/summary untuk heading: {ex}")
 
             # Bangun daftar token yang 'diperluas' sehingga kata-kata seperti
             # 'Hardy-Ramanujan' (yang muncul sebagai satu word entry) dipecah

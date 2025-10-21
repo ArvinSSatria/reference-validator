@@ -245,82 +245,39 @@ def _extract_references_from_docx(file_stream):
     except Exception as e:
         logger.error(f"Gagal memproses file .docx: {e}", exc_info=True)
         return None, f"Gagal memproses file .docx: {e}"
-
+    
 def _extract_references_from_pdf(file_stream):
     """
-    [VERSI PERBAIKAN] Membaca PDF dan mengembalikan blok teks daftar pustaka
-    dengan logika 'berhenti cerdas' untuk menghindari menangkap konten non-referensi.
+    Membaca PDF dan mengembalikan seluruh blok teks daftar pustaka.
+    Sengaja dibuat 'greedy' untuk menghindari berhenti prematur karena page break.
     """
     try:
         pdf_bytes = file_stream.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        
-        # Ekstrak teks per halaman dan gabungkan menjadi satu daftar paragraf
-        all_paragraphs = []
-        for page in doc:
-            # Gunakan get_text("blocks") untuk menjaga struktur paragraf lebih baik
-            blocks = page.get_text("blocks", sort=True)
-            for b in blocks:
-                # b[4] adalah teks blok, ganti newline di dalam blok dengan spasi
-                block_text = b[4].replace('\n', ' ').strip()
-                if block_text:
-                    all_paragraphs.append(block_text)
+        full_text = "".join(page.get_text("text", sort=True) + "\n" for page in doc)
         doc.close()
-
+        paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
+        
         REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
-        STOP_HEADINGS = ["lampiran", "appendix", "biodata", "curriculum vitae", "riwayat hidup"]
         start_index = -1
 
-        # Cari judul "Daftar Pustaka"
-        for i, para in enumerate(all_paragraphs):
-            para_lower = para.lower()
-            # Judul harus berdiri sendiri atau hampir sendiri
-            if any(h in para_lower for h in REFERENCE_HEADINGS) and len(para.split()) < 5:
-                # Pastikan baris berikutnya adalah referensi
-                if i + 1 < len(all_paragraphs) and _is_likely_reference(all_paragraphs[i + 1]):
-                    start_index = i + 1
-                    logger.info(f"Judul Daftar Pustaka ditemukan di PDF pada paragraf #{i}: '{para}'")
-                    break
+        # Cari judul "Daftar Pustaka" dari depan ke belakang
+        for i, para in enumerate(paragraphs):
+            if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para.split()) < 5:
+                start_index = i
+                logger.info(f"Judul Daftar Pustaka ditemukan di PDF pada paragraf #{i}: '{para}'")
+                break
         
         if start_index == -1:
-            return None, "Judul bagian 'Daftar Pustaka' / 'References' tidak ditemukan atau tidak diikuti konten valid."
+            return None, "Judul bagian 'Daftar Pustaka' / 'References' tidak ditemukan dalam dokumen PDF."
 
-        # [PERBAIKAN UTAMA] Implementasi logika tangkap dan berhenti cerdas
-        captured_paragraphs = []
-        consecutive_non_ref_count = 0
-        for j in range(start_index, len(all_paragraphs)):
-            para = all_paragraphs[j]
-            para_lower = para.lower()
-
-            # Berhenti jika menemukan judul stop
-            if any(stop == para_lower for stop in STOP_HEADINGS) and len(para.split()) < 5:
-                logger.info(f"Berhenti menangkap karena menemukan judul stop: '{para}'")
-                break
-            
-            # Logika utama: tangkap jika terlihat seperti referensi
-            if _is_likely_reference(para):
-                captured_paragraphs.append(para)
-                consecutive_non_ref_count = 0
-            else:
-                # Jika baris pendek dan tidak seperti referensi, ini mungkin header/footer
-                if len(para.split()) < 8: 
-                    consecutive_non_ref_count += 1
-                # Jika baris panjang tapi tidak seperti referensi, mungkin akhir bagian
-                elif captured_paragraphs:
-                    # Gabungkan dengan baris sebelumnya jika ini adalah kelanjutan
-                    captured_paragraphs[-1] += " " + para
-                
-            # Berhenti jika 3 baris berturut-turut tidak terlihat seperti referensi
-            if consecutive_non_ref_count >= 3:
-                logger.info("Berhenti menangkap karena pola teks tidak lagi menyerupai referensi.")
-                break
+        # Ambil SEMUA paragraf setelah judul sampai akhir dokumen
+        references_block = "\n".join(paragraphs[start_index + 1:])
         
-        references_block = "\n".join(captured_paragraphs).strip()
-        
-        if not references_block:
-            return None, "Bagian 'Daftar Pustaka' ditemukan, tetapi isinya kosong atau tidak dapat diurai."
+        if not references_block.strip():
+            return None, "Bagian 'Daftar Pustaka' ditemukan, tetapi tampaknya kosong."
 
-        logger.info(f"Berhasil mengekstrak blok teks referensi dari PDF dengan 'stop cerdas'.")
+        logger.info(f"Berhasil mengekstrak blok teks referensi dari PDF.")
         return references_block, None
         
     except Exception as e:
@@ -372,18 +329,21 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
     return f"""
     Anda adalah AI ahli analisis daftar pustaka. Jawab SEMUA feedback dalam BAHASA INDONESIA.
     Analisis setiap referensi berikut berdasarkan gaya sitasi: **{style}**.
+    PENTING: Perlakukan 'conference proceedings' dan 'book series' yang diterbitkan secara akademis sebagai sumber ilmiah yang valid, setara dengan jurnal.
 
     PROSES UNTUK SETIAP REFERENSI:
     1.  **Ekstrak Elemen:** Ekstrak Penulis, Tahun, Judul, dan Nama Jurnal/Sumber.
     2.  **Identifikasi Tipe:** Tentukan `reference_type` ('journal', 'book', 'conference', 'website', 'other').
-    3.  **Evaluasi Kelengkapan (`is_complete`):** Pastikan elemen wajib ada (Penulis, Tahun, Judul, Sumber, Halaman untuk jurnal). Jika tidak, `is_complete` = false.
-    4.  **Evaluasi Tahun (`is_year_recent`):** `is_year_recent` = true jika tahun >= {year_threshold} (kecuali untuk buku fundamental).
+    3.  **Evaluasi Kelengkapan (`is_complete`):** Pastikan elemen wajib ada (Penulis, Tahun, Judul, Sumber). Jika tidak, `is_complete` = false.
+    4.  **Evaluasi Tahun (`is_year_recent`):** `is_year_recent` = true jika tahun >= {year_threshold}.
     5.  **Evaluasi Format (`is_format_correct`):**
-        - Fokus utama pada **STRUKTUR dan URUTAN ELEMEN** (Penulis-Tahun-Judul) sesuai gaya '{style}'.
+        - Fokus utama pada **STRUKTUR dan URUTAN ELEMEN** sesuai gaya '{style}'.
         - Beri `is_format_correct` = **true** jika STRUKTUR UTAMA sudah benar, meskipun ada kesalahan styling minor.
-        - Jika ada saran perbaikan styling (seperti cetak miring/italics pada nama jurnal atau volume), sebutkan saran tersebut di `feedback` tanpa membuat `is_format_correct` menjadi false.
-        - Beri `is_format_correct` = **false** hanya jika ada kesalahan STRUKTUR FATAL (misal: urutan elemen salah, tanda kurung/kutip salah total).
-    6.  **Evaluasi Sumber (`is_scientific_source`):** Tentukan `true` untuk sumber ilmiah, `false` untuk non-ilmiah.
+        - Jika ada saran perbaikan styling (seperti cetak miring), sebutkan di `feedback` tanpa membuat `is_format_correct` menjadi false.
+        - Beri `is_format_correct` = **false** hanya jika ada kesalahan STRUKTUR FATAL.
+    6.  **Evaluasi Sumber (`is_scientific_source`):** 
+        - Tentukan `true` untuk sumber-sumber ilmiah seperti jurnal, buku akademis, dan **prosiding konferensi (conference proceedings)**.
+        - Tentukan `false` untuk sumber non-ilmiah seperti Wikipedia, blog pribadi, atau artikel berita.
 
     DAFTAR REFERENSI:
     ---

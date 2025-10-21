@@ -605,22 +605,14 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
             return _looks_like_reference_line(context)
 
         for page in pdf:
-            if not start_annotating:
-                page_text_lower = page.get_text("text").lower()
-                if any(h in page_text_lower for h in ["daftar pustaka", "references"]):
-                    start_annotating = True
-            if not start_annotating:
-                continue
-
+            # Ambil kata-kata di halaman dulu: diperlukan untuk deteksi heading yang ketat
             words_on_page = page.get_text("words")
 
-            # Jika ini halaman tempat judul 'Daftar Pustaka' ditemukan dan kita belum
-            # menambahkan ringkasan, cari posisi judul dan tambahkan highlight + note
-            if start_annotating and not added_references_summary:
+            # Jika belum menemukan heading daftar pustaka, lakukan deteksi yang lebih ketat
+            if not start_annotating:
                 try:
-                    # Build lines from words_on_page by grouping words with similar Y coordinates.
-                    # This lets us detect a standalone heading line (not an inline phrase in a paragraph)
                     heading_tokens = ['daftar pustaka', 'references']
+                    # Bangun lines berdasarkan koordinat Y seperti yang dipakai nanti
                     lines = []
                     for wi, w in enumerate(words_on_page):
                         x0, y0, x1, y1, txt = w[0], w[1], w[2], w[3], w[4]
@@ -629,7 +621,6 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                         if not lines:
                             lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
                         else:
-                            # if vertical gap is small, consider same line
                             if abs(y0 - lines[-1]['y']) <= 3:
                                 lines[-1]['words'].append(txt)
                                 lines[-1]['word_indices'].append(wi)
@@ -637,26 +628,26 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                             else:
                                 lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
 
-                    heading_idx = None
+                    heading_found = False
                     heading_rects = []
+                    heading_idx = None
                     for li, line in enumerate(lines):
                         line_text = ' '.join(line['words']).strip().lower()
                         for ht in heading_tokens:
-                            # Normalize line text (remove punctuation) for strict comparison
                             norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
                             if norm_line == ht:
-                                # exact line match
-                                # Check next few lines for reference-like patterns
+                                # cek konteks berikutnya apakah tampak seperti referensi
                                 context = []
                                 for j in range(li+1, min(len(lines), li+7)):
                                     context.append(' '.join(lines[j]['words']))
                                 context_text = ' '.join(context)
                                 if _looks_like_reference_line(context_text):
+                                    heading_found = True
                                     heading_idx = li
                                     heading_rects = line['rects']
                                     break
                             else:
-                                # Allow two-line heading like 'daftar' + 'pustaka'
+                                # cek kemungkinan judul dua baris: 'daftar' + 'pustaka'
                                 if li+1 < len(lines):
                                     next_line_text = ' '.join(lines[li+1]['words']).strip().lower()
                                     norm_next = re.sub(r'[^a-z0-9\s]', '', next_line_text)
@@ -666,13 +657,73 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                                             context.append(' '.join(lines[j]['words']))
                                         context_text = ' '.join(context)
                                         if _looks_like_reference_line(context_text):
+                                            heading_found = True
                                             heading_idx = li
                                             heading_rects = line['rects'] + lines[li+1]['rects']
                                             break
-                        if heading_idx is not None:
+                        if heading_found:
                             break
 
-                    # Jika heading ditemukan, buat highlight/per-kata highlight dan sebuah note
+                    if heading_found:
+                        start_annotating = True
+                    else:
+                        # Tidak yakin ini adalah halaman daftar pustaka -> lewati
+                        continue
+                except Exception:
+                    # Jika deteksi heading gagal (misalnya halaman kosong), lanjutkan ke halaman berikutnya
+                    continue
+
+            # Jika ini halaman tempat judul 'Daftar Pustaka' ditemukan dan kita belum
+            # menambahkan ringkasan, gunakan heading_rects yang mungkin sudah terdeteksi
+            if start_annotating and not added_references_summary:
+                try:
+                    # Jika heading_rects belum diisi (mis. karena deteksi di awal halaman gagal),
+                    # coba deteksi sekali lagi secara lokal seperti sebelumnya
+                    if not heading_rects:
+                        # Build lines and attempt to find heading_rects (fallback)
+                        heading_tokens = ['daftar pustaka', 'references']
+                        lines = []
+                        for wi, w in enumerate(words_on_page):
+                            x0, y0, x1, y1, txt = w[0], w[1], w[2], w[3], w[4]
+                            if not txt or not txt.strip():
+                                continue
+                            if not lines:
+                                lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
+                            else:
+                                if abs(y0 - lines[-1]['y']) <= 3:
+                                    lines[-1]['words'].append(txt)
+                                    lines[-1]['word_indices'].append(wi)
+                                    lines[-1]['rects'].append(fitz.Rect(w[:4]))
+                                else:
+                                    lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
+
+                        for li, line in enumerate(lines):
+                            line_text = ' '.join(line['words']).strip().lower()
+                            for ht in heading_tokens:
+                                norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
+                                if norm_line == ht:
+                                    context = []
+                                    for j in range(li+1, min(len(lines), li+7)):
+                                        context.append(' '.join(lines[j]['words']))
+                                    context_text = ' '.join(context)
+                                    if _looks_like_reference_line(context_text):
+                                        heading_rects = line['rects']
+                                        break
+                                else:
+                                    if li+1 < len(lines):
+                                        next_line_text = ' '.join(lines[li+1]['words']).strip().lower()
+                                        norm_next = re.sub(r'[^a-z0-9\s]', '', next_line_text)
+                                        if f"{norm_line} {norm_next}".strip() == ht:
+                                            context = []
+                                            for j in range(li+2, min(len(lines), li+8)):
+                                                context.append(' '.join(lines[j]['words']))
+                                            context_text = ' '.join(context)
+                                            if _looks_like_reference_line(context_text):
+                                                heading_rects = line['rects'] + lines[li+1]['rects']
+                                                break
+                            if heading_rects:
+                                break
+
                     if heading_rects:
                         # Gabungkan rects menjadi satu area untuk highlight heading
                         heading_full = fitz.Rect(heading_rects[0])
@@ -680,13 +731,11 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                             heading_full.include_rect(r)
 
                         try:
-                            # Light blue for heading RGB(210,236,238)
                             pattens_blue = (210/255.0, 236/255.0, 238/255.0)
                             h = page.add_highlight_annot(heading_full)
                             h.set_colors(stroke=pattens_blue, fill=pattens_blue)
                             h.update()
                         except Exception:
-                            # fallback: add a rectangle annotation
                             try:
                                 r_annot = page.add_rect_annot(heading_full)
                                 r_annot.set_colors(stroke=pattens_blue, fill=pattens_blue)
@@ -704,15 +753,12 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                         journal_pct = round((journal_count / total) * 100, 1) if total > 0 else 0.0
                         non_journal_pct = round((non_journal_count / total) * 100, 1) if total > 0 else 0.0
 
-                        # Terindeks SJR (is_indexed True pada detailed_results)
                         sjr_count = sum(1 for r in detailed_results if r.get('is_indexed'))
                         sjr_pct = round((sjr_count / total) * 100, 1) if total > 0 else 0.0
 
                         distrib = summary.get('distribution_analysis', {})
                         meets_journal_req = distrib.get('meets_journal_requirement')
                         journal_percentage = distrib.get('journal_percentage')
-                        # Try to get threshold if provided
-                        # Ambil threshold yang dipakai (jika disertakan di summary dari proses utama)
                         raw_threshold = validation_results.get('journal_percent_threshold')
                         if raw_threshold is None:
                             raw_threshold = validation_results.get('summary', {}).get('journal_percent_threshold')
@@ -727,11 +773,9 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                         else:
                             jp_display = f"{journal_pct:.1f}%"
 
-                        # Year validity
                         year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
                         year_not_approved = total - year_approved
 
-                        # Quartile counts
                         q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
                         for r in detailed_results:
                             q = r.get('quartile')
@@ -750,13 +794,11 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                             f"Kuartil: Q1: {q_counts['Q1']} | Q2: {q_counts['Q2']} | Q3: {q_counts['Q3']} | Q4: {q_counts['Q4']} | Tidak ditemukan: {q_counts['Not Found']}"
                         )
 
-                        # Tambahkan satu popup note di atas heading
                         try:
                             popup_pos = fitz.Point(heading_full.x0, max(0, heading_full.y0 - 18))
                             note = page.add_text_annot(popup_pos, summary_content)
                             note.set_info(title="Ringkasan Validasi Referensi")
                             try:
-                                # Try to color the note with Pattens Blue if supported
                                 note.set_colors(stroke=pattens_blue, fill=pattens_blue)
                             except Exception:
                                 pass

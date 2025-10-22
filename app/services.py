@@ -30,9 +30,7 @@ _MODEL_CACHE = None
 def _clean_scimago_title(title):
     if not isinstance(title, str): return ""
     s = title.lower()
-    # Ganti SEMUA yang bukan huruf/angka dengan SPASI
     s = re.sub(r'[^a-z0-9]', ' ', s)
-    # Ganti beberapa spasi menjadi SATU spasi
     s = re.sub(r'\s+', ' ', s).strip()
     return s
 
@@ -40,7 +38,6 @@ def load_scimago_data():
     global SCIMAGO_DATA
     try:
         df = pd.read_csv(Config.SCIMAGO_FILE_PATH, sep=';', encoding='utf-8')
-         # Check for all required columns
         required_cols = ['Sourceid', 'Title', 'Type', 'SJR Best Quartile']
         if all(col in df.columns for col in required_cols):
             df.dropna(subset=required_cols, inplace=True)
@@ -258,7 +255,7 @@ def _extract_references_from_pdf(file_stream):
         doc.close()
         paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
         
-        REFERENCE_HEADINGS = ["daftar pustaka", "referensi", "bibliography", "references", "pustaka rujukan"]
+        REFERENCE_HEADINGS = ["daftar pustaka", "daftar referensi", "referensi", "bibliography", "references", "pustaka rujukan"]
         start_index = -1
 
         # Cari judul "Daftar Pustaka" dari depan ke belakang
@@ -287,14 +284,8 @@ def _extract_references_from_pdf(file_stream):
 def _get_references_from_request(request, file_stream=None):
     """Mengambil input sebagai SATU BLOK TEKS, baik dari file maupun textarea."""
     if 'file' in request.files and request.files['file'].filename:
-        # --- PERBAIKAN UTAMA DI SINI ---
-        
-        # Selalu ambil nama file dari request asli
         original_file_object = request.files['file']
         filename = secure_filename(original_file_object.filename)
-
-        # Prioritaskan stream dari file yang sudah disimpan (untuk dibaca isinya)
-        # Jika tidak ada (kasus input teks), baru ambil dari request upload.
         stream_to_read = file_stream or original_file_object
         
         # Validasi ekstensi
@@ -308,7 +299,9 @@ def _get_references_from_request(request, file_stream=None):
             return _extract_references_from_pdf(stream_to_read)
             
     if 'text' in request.form and request.form['text'].strip():
-        return request.form['text'].strip(), None
+        full_text = request.form['text'].strip()
+        paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
+        return _find_references_section_as_text_block(paragraphs)
         
     return None, "Tidak ada input yang diberikan."
 
@@ -319,31 +312,38 @@ def _construct_batch_gemini_prompt(references_list, style, year_range):
     formatted_references = "\n".join([f"{i+1}. {ref}" for i, ref in enumerate(references_list)])
 
     style_examples = {
-        "APA": "Contoh APA: Smith, J. (2023). Judul artikel. *Nama Jurnal*, *10*(2), 1-10.",
-        "Harvard": "Contoh Harvard: Smith, J. (2023) 'Judul artikel', *Nama Jurnal*, 10(2), pp. 1-10.",
-        "IEEE": "Contoh IEEE: [1] J. Smith, \"Judul artikel,\" *Nama Jurnal*, vol. 10, no. 2, pp. 1-10, Jan. 2023.",
-        "MLA": "Contoh MLA: Smith, John. \"Judul Artikel.\" *Nama Jurnal*, vol. 10, no. 2, 2023, pp. 1-10.",
-        "Chicago": "Contoh Chicago: Smith, John. 2023. \"Judul Artikel.\" *Nama Jurnal* 10 (2): 1-10."
+        "APA": "Contoh APA: Smith, J. (2023). Judul artikel. Nama Jurnal, 10(2), 1-10.",
+        "Harvard": "Contoh Harvard: Smith, J. (2023) 'Judul artikel', Nama Jurnal, 10(2), pp. 1-10.",
+        "IEEE": "Contoh IEEE: [1] J. Smith, \"Judul artikel,\" Nama Jurnal, vol. 10, no. 2, pp. 1-10, Jan. 2023.",
+        "MLA": "Contoh MLA: Smith, John. \"Judul Artikel.\" Nama Jurnal, vol. 10, no. 2, 2023, pp. 1-10.",
+        "Chicago": "Contoh Chicago: Smith, John. 2023. \"Judul Artikel.\" Nama Jurnal 10 (2): 1-10."
     }
     
+    # [PERBAIKAN UTAMA DI SINI]
     return f"""
     Anda adalah AI ahli analisis daftar pustaka. Jawab SEMUA feedback dalam BAHASA INDONESIA.
     Analisis setiap referensi berikut berdasarkan gaya sitasi: **{style}**.
-    PENTING: Perlakukan 'conference proceedings' dan 'book series' yang diterbitkan secara akademis sebagai sumber ilmiah yang valid, setara dengan jurnal.
+
+    ⚠️ Catatan Penting (versi lebih longgar / fleksibel):
+    - Jika referensi berupa **preprint / working paper / early access / SSRN / arXiv / ResearchSquare**, TETAP dianggap ilmiah dan `is_scientific_source = true` selama ada DOI / Handle / SSRN ID / arXiv ID.
+    - Informasi volume, issue, atau halaman yang tidak tersedia pada preprint/working paper TIDAK dianggap sebagai kekurangan (`is_complete = true`).
+    - Penilaian `is_format_correct` hanya mengecek URUTAN UTAMA (penulis → tahun → judul). Variasi kecil gaya tanda baca / italic / huruf besar TIDAK mempengaruhi.
+    - Jika jurnal Q1 atau terindeks, tetap OK meskipun tidak mencantumkan issue/halaman (karena beberapa jurnal pakai article number).
+    - HANYA sumber non-ilmiah (blog pribadi, Wikipedia, konten marketing) yang diberi `is_scientific_source = false`.
 
     PROSES UNTUK SETIAP REFERENSI:
-    1.  **Ekstrak Elemen:** Ekstrak Penulis, Tahun, Judul, dan Nama Jurnal/Sumber.
-    2.  **Identifikasi Tipe:** Tentukan `reference_type` ('journal', 'book', 'conference', 'website', 'other').
-    3.  **Evaluasi Kelengkapan (`is_complete`):** Pastikan elemen wajib ada (Penulis, Tahun, Judul, Sumber). Jika tidak, `is_complete` = false.
-    4.  **Evaluasi Tahun (`is_year_recent`):** `is_year_recent` = true jika tahun >= {year_threshold}.
-    5.  **Evaluasi Format (`is_format_correct`):**
-        - Fokus utama pada **STRUKTUR dan URUTAN ELEMEN** sesuai gaya '{style}'.
-        - Beri `is_format_correct` = **true** jika STRUKTUR UTAMA sudah benar, meskipun ada kesalahan styling minor.
-        - Jika ada saran perbaikan styling (seperti cetak miring), sebutkan di `feedback` tanpa membuat `is_format_correct` menjadi false.
-        - Beri `is_format_correct` = **false** hanya jika ada kesalahan STRUKTUR FATAL.
-    6.  **Evaluasi Sumber (`is_scientific_source`):** 
-        - Tentukan `true` untuk sumber-sumber ilmiah seperti jurnal, buku akademis, dan **prosiding konferensi (conference proceedings)**.
-        - Tentukan `false` untuk sumber non-ilmiah seperti Wikipedia, blog pribadi, atau artikel berita.
+    1. **Ekstrak Elemen:** Penulis, Tahun, Judul, dan Nama Jurnal/Sumber.
+    2. **Identifikasi tipe:** `reference_type` = journal / book / conference / preprint / website / other.
+    3. **Kelengkapan (`is_complete`):**
+    - true jika elemen utama ada (penulis, tahun, judul, sumber).
+    - Halaman/volume/issue opsional untuk preprint atau model article-number.
+    4. **Evaluasi Tahun (`is_year_recent`):** true jika tahun >= {year_threshold}.
+    5. **Format (`is_format_correct`):** true jika urutan inti Penulis→Tahun→Judul sudah benar (tanpa cek detail tanda baca).
+    6. **Evaluasi Sumber (`is_scientific_source`):**
+    - true untuk jurnal, prosiding, buku akademik, preprint (SSRN/arXiv), dan working paper ilmiah.
+    - false hanya untuk non-ilmiah.
+    7. **Feedback:**
+    - Jika ada kekurangan → jelaskan ringkas tanpa menyebut “INVALID”, cukup “perlu ditambahkan...”.
 
     DAFTAR REFERENSI:
     ---
@@ -575,505 +575,257 @@ def process_validation_request(request, saved_file_stream=None):
 
 def create_annotated_pdf_from_file(original_filepath, validation_results):
     """
-    Versi Final Paling Andal: Menangani nama jurnal yang terpotong antar baris
-    dan memperbaiki bug 'bad quads entry'.
+    Versi FIXED (Anti-Duplikasi):
+    Menggunakan mekanisme 'claiming' (used_word_indices) untuk memastikan jika ada
+    dua referensi dengan jurnal/tahun sama, keduanya tetap ter-highlight pada
+    kemunculan teks yang berbeda di halaman yang sama.
     """
     try:
         pdf = fitz.open(original_filepath)
         detailed_results = validation_results.get('detailed_results', [])
-        highlighted_ref_numbers = set()
-        added_references_summary = False
+        
+        PATTENS_BLUE = (210/255.0, 236/255.0, 238/255.0)
+        INDEXED_RGB  = (208/255.0, 233/255.0, 222/255.0)
+        PINK_RGB     = (251/255.0, 215/255.0, 222/255.0)
+        YEAR_RGB     = (255/255.0, 105/255.0, 97/255.0)
 
         start_annotating = False
+        added_references_summary = False
+
+        # Helper untuk cek apakah sebuah baris terlihat seperti referensi
         def _looks_like_reference_line(text):
-            # Simple heuristic: contains a 4-digit year or starts with numbering
-            if not text or not isinstance(text, str):
-                return False
-            if re.search(r'\(\d{4}\)|\d{4}', text):
-                return True
-            if re.match(r'^(\[\d+\]|\(\d+\)|\d+\.)', text.strip()):
-                return True
+            if not text or not isinstance(text, str): return False
+            # Ada tahun 4 digit dalam kurung atau berdiri sendiri
+            if re.search(r'\(\d{4}\)|\b\d{4}\b', text): return True
+            # Dimulai dengan numbering [1], (1), 1.
+            if re.match(r'^(\[\d+\]|\(\d+\)|\d+\.)', text.strip()): return True
             return False
 
-        def _heading_followed_by_reference(page_words, start_idx):
-            # Look ahead a few words/lines after the heading to see if there's a likely reference
-            # Build small context text from the following 30 words
-            texts = []
-            for j in range(start_idx + 1, min(len(page_words), start_idx + 60)):
-                texts.append(page_words[j][4])
-            context = ' '.join(texts)
-            return _looks_like_reference_line(context)
+        for page_num, page in enumerate(pdf):
+            words_on_page = page.get_text("words") # Returns list of (x0,y0,x1,y1, "word", block_no, line_no, word_no)
 
-        for page in pdf:
-            # Ambil kata-kata di halaman dulu: diperlukan untuk deteksi heading yang ketat
-            words_on_page = page.get_text("words")
+            used_word_indices = set()
 
-            # Jika belum menemukan heading daftar pustaka, lakukan deteksi yang lebih ketat
+            # --- BAGIAN 1: DETEKSI & SUMMARY HEADING (Tidak berubah banyak) ---
             if not start_annotating:
+                # (Logika deteksi heading dipertahankan sama seperti sebelumnya agar stabil)
                 try:
-                    heading_tokens = ['daftar pustaka', 'references']
-                    # Bangun lines berdasarkan koordinat Y seperti yang dipakai nanti
+                    heading_tokens = ['daftar pustaka', 'references', 'daftar referensi', 'bibliography', 'pustaka rujukan', 'referensi']
                     lines = []
                     for wi, w in enumerate(words_on_page):
                         x0, y0, x1, y1, txt = w[0], w[1], w[2], w[3], w[4]
-                        if not txt or not txt.strip():
-                            continue
-                        if not lines:
+                        if not txt or not txt.strip(): continue
+                        if not lines or abs(y0 - lines[-1]['y']) > 3:
                             lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
                         else:
-                            if abs(y0 - lines[-1]['y']) <= 3:
-                                lines[-1]['words'].append(txt)
-                                lines[-1]['word_indices'].append(wi)
-                                lines[-1]['rects'].append(fitz.Rect(w[:4]))
-                            else:
-                                lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
+                            lines[-1]['words'].append(txt)
+                            lines[-1]['word_indices'].append(wi)
+                            lines[-1]['rects'].append(fitz.Rect(w[:4]))
 
-                    heading_found = False
                     heading_rects = []
-                    heading_idx = None
                     for li, line in enumerate(lines):
                         line_text = ' '.join(line['words']).strip().lower()
+                        norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
+                        
+                        found_ht = False
                         for ht in heading_tokens:
-                            norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
                             if norm_line == ht:
-                                # cek konteks berikutnya apakah tampak seperti referensi
-                                context = []
-                                for j in range(li+1, min(len(lines), li+7)):
-                                    context.append(' '.join(lines[j]['words']))
-                                context_text = ' '.join(context)
-                                if _looks_like_reference_line(context_text):
-                                    heading_found = True
-                                    heading_idx = li
-                                    heading_rects = line['rects']
-                                    break
-                            else:
-                                # cek kemungkinan judul dua baris: 'daftar' + 'pustaka'
-                                if li+1 < len(lines):
-                                    next_line_text = ' '.join(lines[li+1]['words']).strip().lower()
-                                    norm_next = re.sub(r'[^a-z0-9\s]', '', next_line_text)
-                                    if f"{norm_line} {norm_next}".strip() == ht:
-                                        context = []
-                                        for j in range(li+2, min(len(lines), li+8)):
-                                            context.append(' '.join(lines[j]['words']))
-                                        context_text = ' '.join(context)
-                                        if _looks_like_reference_line(context_text):
-                                            heading_found = True
-                                            heading_idx = li
-                                            heading_rects = line['rects'] + lines[li+1]['rects']
-                                            break
-                        if heading_found:
-                            break
+                                found_ht = True
+                            elif li+1 < len(lines):
+                                next_text = re.sub(r'[^a-z0-9\s]', '', ' '.join(lines[li+1]['words']).strip().lower())
+                                if f"{norm_line} {next_text}".strip() == ht:
+                                    found_ht = True
+                                    # Tambahkan rects baris berikutnya jika judul 2 baris
+                                    line['rects'].extend(lines[li+1]['rects'])
 
-                    if heading_found:
-                        start_annotating = True
-                    else:
-                        # Tidak yakin ini adalah halaman daftar pustaka -> lewati
-                        continue
-                except Exception:
-                    # Jika deteksi heading gagal (misalnya halaman kosong), lanjutkan ke halaman berikutnya
-                    continue
-
-            # Jika ini halaman tempat judul 'Daftar Pustaka' ditemukan dan kita belum
-            # menambahkan ringkasan, gunakan heading_rects yang mungkin sudah terdeteksi
-            if start_annotating and not added_references_summary:
-                try:
-                    # Jika heading_rects belum diisi (mis. karena deteksi di awal halaman gagal),
-                    # coba deteksi sekali lagi secara lokal seperti sebelumnya
-                    if not heading_rects:
-                        # Build lines and attempt to find heading_rects (fallback)
-                        heading_tokens = ['daftar pustaka', 'references']
-                        lines = []
-                        for wi, w in enumerate(words_on_page):
-                            x0, y0, x1, y1, txt = w[0], w[1], w[2], w[3], w[4]
-                            if not txt or not txt.strip():
-                                continue
-                            if not lines:
-                                lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
-                            else:
-                                if abs(y0 - lines[-1]['y']) <= 3:
-                                    lines[-1]['words'].append(txt)
-                                    lines[-1]['word_indices'].append(wi)
-                                    lines[-1]['rects'].append(fitz.Rect(w[:4]))
-                                else:
-                                    lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
-
-                        for li, line in enumerate(lines):
-                            line_text = ' '.join(line['words']).strip().lower()
-                            for ht in heading_tokens:
-                                norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
-                                if norm_line == ht:
-                                    context = []
-                                    for j in range(li+1, min(len(lines), li+7)):
-                                        context.append(' '.join(lines[j]['words']))
-                                    context_text = ' '.join(context)
-                                    if _looks_like_reference_line(context_text):
-                                        heading_rects = line['rects']
-                                        break
-                                else:
-                                    if li+1 < len(lines):
-                                        next_line_text = ' '.join(lines[li+1]['words']).strip().lower()
-                                        norm_next = re.sub(r'[^a-z0-9\s]', '', next_line_text)
-                                        if f"{norm_line} {norm_next}".strip() == ht:
-                                            context = []
-                                            for j in range(li+2, min(len(lines), li+8)):
-                                                context.append(' '.join(lines[j]['words']))
-                                            context_text = ' '.join(context)
-                                            if _looks_like_reference_line(context_text):
-                                                heading_rects = line['rects'] + lines[li+1]['rects']
-                                                break
-                            if heading_rects:
+                        if found_ht:
+                            # Cek konteks 7 baris ke depan
+                            context = ' '.join([' '.join(lines[j]['words']) for j in range(li+1, min(len(lines), li+8))])
+                            if _looks_like_reference_line(context):
+                                start_annotating = True
+                                heading_rects = line['rects']
                                 break
+                    
+                    if not start_annotating: continue # Lanjut ke halaman berikutnya jika belum ketemu
 
-                    if heading_rects:
-                        # Gabungkan rects menjadi satu area untuk highlight heading
-                        heading_full = fitz.Rect(heading_rects[0])
-                        for r in heading_rects[1:]:
-                            heading_full.include_rect(r)
+                except Exception: continue
 
-                        try:
-                            pattens_blue = (210/255.0, 236/255.0, 238/255.0)
-                            h = page.add_highlight_annot(heading_full)
-                            h.set_colors(stroke=pattens_blue, fill=pattens_blue)
-                            h.update()
-                        except Exception:
-                            try:
-                                r_annot = page.add_rect_annot(heading_full)
-                                r_annot.set_colors(stroke=pattens_blue, fill=pattens_blue)
-                                r_annot.set_opacity(0.4)
-                                r_annot.set_blend_mode("Multiply")
-                                r_annot.update()
-                            except Exception:
-                                logger.debug("Gagal menambahkan highlight heading, lanjut tanpa highlight")
+            # --- BAGIAN 2: GAMBAR SUMMARY NOTE PADA HEADING ---
+            if start_annotating and not added_references_summary and heading_rects:
+                try:
+                    heading_full = fitz.Rect(heading_rects[0])
+                    for r in heading_rects[1:]: heading_full.include_rect(r)
+                    
+                    # Highlight Heading
+                    h = page.add_highlight_annot(heading_full)
+                    h.set_colors(stroke=PATTENS_BLUE, fill=PATTENS_BLUE)
+                    h.update()
 
-                        # Siapkan ringkasan validasi berdasarkan validation_results dan detailed_results
-                        summary = validation_results.get('summary', {})
-                        total = summary.get('total_references', len(detailed_results))
-                        journal_count = sum(1 for r in detailed_results if r.get('reference_type') == 'journal')
-                        non_journal_count = total - journal_count
-                        journal_pct = round((journal_count / total) * 100, 1) if total > 0 else 0.0
-                        non_journal_pct = round((non_journal_count / total) * 100, 1) if total > 0 else 0.0
+                    # Siapkan Teks Summary
+                    summary = validation_results.get('summary', {})
+                    total = len(detailed_results)
+                    journal_count = sum(1 for r in detailed_results if r.get('reference_type') == 'journal')
+                    sjr_count = sum(1 for r in detailed_results if r.get('is_indexed'))
+                    
+                    # Hitung year approved berdasarkan data detail
+                    year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
+                    
+                    q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
+                    for r in detailed_results:
+                         q = r.get('quartile')
+                         if q in q_counts: q_counts[q] += 1
+                         elif q: q_counts['Not Found'] += 1
 
-                        sjr_count = sum(1 for r in detailed_results if r.get('is_indexed'))
-                        sjr_pct = round((sjr_count / total) * 100, 1) if total > 0 else 0.0
+                    summary_content = (
+                        f"Total Referensi: {total}\n"
+                        f"Artikel Jurnal: {journal_count} ({ (journal_count/total*100) if total else 0:.1f}%)\n"
+                        f"Terindeks SJR: {sjr_count} ({ (sjr_count/total*100) if total else 0:.1f}%)\n"
+                        f"Validitas Tahun (Recent): {year_approved} dari {total}\n"
+                        f"Kuartil: Q1:{q_counts['Q1']} | Q2:{q_counts['Q2']} | Q3:{q_counts['Q3']} | Q4:{q_counts['Q4']}"
+                    )
 
-                        distrib = summary.get('distribution_analysis', {})
-                        meets_journal_req = distrib.get('meets_journal_requirement')
-                        journal_percentage = distrib.get('journal_percentage')
-                        raw_threshold = validation_results.get('journal_percent_threshold')
-                        if raw_threshold is None:
-                            raw_threshold = validation_results.get('summary', {}).get('journal_percent_threshold')
-                        if isinstance(raw_threshold, (int, float)):
-                            threshold = f"{raw_threshold}%"
-                        else:
-                            threshold = str(raw_threshold or 'N/A')
+                    note = page.add_text_annot(fitz.Point(heading_full.x0, max(0, heading_full.y0 - 15)), summary_content)
+                    note.set_info(title="Ringkasan Validasi")
+                    note.set_colors(stroke=PATTENS_BLUE, fill=PATTENS_BLUE)
+                    note.update()
+                    added_references_summary = True
+                    
+                except Exception as e:
+                    logger.warning(f"Gagal membuat summary heading: {e}")   
 
-                        meets_text = 'VALID' if meets_journal_req else 'INVALID'
-                        if isinstance(journal_percentage, (int, float)):
-                            jp_display = f"{journal_percentage:.1f}%"
-                        else:
-                            jp_display = f"{journal_pct:.1f}%"
-
-                        year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
-                        year_not_approved = total - year_approved
-
-                        q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
-                        for r in detailed_results:
-                            q = r.get('quartile')
-                            if q in ('Q1','Q2','Q3','Q4'):
-                                q_counts[q] += 1
-                            else:
-                                q_counts['Not Found'] += 1
-
-                        summary_content = (
-                            f"Total Referensi: {total}\n"
-                            f"Artikel Jurnal: {journal_count} ({journal_pct}%)\n"
-                            f"Artikel Non-jurnal: {non_journal_count} ({non_journal_pct}%)\n"
-                            f"Terindeks SJR: {sjr_count} ({sjr_pct}%)\n"
-                            f"Min. Persyaratan Jurnal: {meets_text} ({jp_display} / {threshold})\n"
-                            f"Validitas Tahun: {year_approved} approved / {year_not_approved} not approved\n"
-                            f"Kuartil: Q1: {q_counts['Q1']} | Q2: {q_counts['Q2']} | Q3: {q_counts['Q3']} | Q4: {q_counts['Q4']} | Tidak ditemukan: {q_counts['Not Found']}"
-                        )
-
-                        try:
-                            popup_pos = fitz.Point(heading_full.x0, max(0, heading_full.y0 - 18))
-                            note = page.add_text_annot(popup_pos, summary_content)
-                            note.set_info(title="Ringkasan Validasi Referensi")
-                            try:
-                                note.set_colors(stroke=pattens_blue, fill=pattens_blue)
-                            except Exception:
-                                pass
-                            note.update()
-                        except Exception as ex:
-                            logger.warning(f"Gagal menambahkan summary note pada heading: {ex}")
-
-                        added_references_summary = True
-                except Exception as ex:
-                    logger.warning(f"Error saat mencoba menambahkan highlight/summary untuk heading: {ex}")
-
-            # Bangun daftar token yang 'diperluas' sehingga kata-kata seperti
-            # 'Hardy-Ramanujan' (yang muncul sebagai satu word entry) dipecah
-            # menjadi token ['hardy', 'ramanujan'] dan tetap dipetakan ke kotak kata asli.
-            expanded_tokens = []  # list of dicts: {token, word_index, rect}
+            # --- PERSIAPAN TOKEN HALAMAN UNTUK PENCARIAN JURNAL ---
+            # Kita expand agar kata yang tergabung (misal karena formatting) tetap bisa dicari per kata
+            expanded_tokens = []
             for wi, w in enumerate(words_on_page):
                 cleaned = _clean_scimago_title(w[4])
-                if not cleaned:
-                    continue
-                parts = cleaned.split()
-                for part in parts:
-                    expanded_tokens.append({
-                        'token': part,
-                        'word_index': wi,
-                        'rect': fitz.Rect(w[:4])
-                    })
+                if cleaned:
+                    for part in cleaned.split():
+                        expanded_tokens.append({'token': part, 'word_index': wi, 'rect': fitz.Rect(w[:4])})
+            
+            # --- BAGIAN 3: HIGHLIGHT NAMA JURNAL ---
+            for result in detailed_results:
+                # Cek apakah tipe jurnal atau terindeks (sesuai permintaan user untuk highlight jurnal)
+                is_journal_or_indexed = (result.get('reference_type') == 'journal') or result.get('is_indexed')
+                if not is_journal_or_indexed: continue
 
-                for result in detailed_results:
-                    ref_num = result.get('reference_number')
-                    # Hanya beri anotasi pada journals (user requested) dan jika belum diproses
-                    if ref_num in highlighted_ref_numbers:
-                        continue
+                journal_name = result.get('parsed_journal')
+                if not journal_name or len(journal_name) < 2: continue
 
-                    journal_type = (result.get('reference_type') or '').lower()
-                    # Jika jurnal tidak bertipe 'journal', tetap proses jika SCIMAGO menandainya sebagai terindeks
-                    is_indexed_flag = bool(result.get('is_indexed'))
-                    if not (journal_type == 'journal' or is_indexed_flag):
-                        continue
+                search_tokens = _clean_scimago_title(journal_name).split()
+                if not search_tokens: continue
+                plen = len(search_tokens)
 
-                    journal_name = result.get('parsed_journal')
-                    # Jika tidak ada nama jurnal yang berarti, lewati
-                    if not journal_name or len(journal_name) < 3:
-                        continue
+                # Scan halaman ini untuk mencari jurnal tersebut
+                for i in range(len(expanded_tokens) - plen + 1):
+                    # 1. Cek kecocokan token
+                    potential_match_tokens = [t['token'] for t in expanded_tokens[i:i+plen]]
+                    if potential_match_tokens == search_tokens:
+                        # 2. [CRITICAL FIX] Cek apakah kata-kata ini SUDAH DIPAKAI referensi lain?
+                        match_indices = [expanded_tokens[i+k]['word_index'] for k in range(plen)]
+                        if any(idx in used_word_indices for idx in match_indices):
+                            continue # Skip! Cari kemunculan berikutnya di halaman ini.
+                        
+                        # 3. Jika belum dipakai, KLAIM kata-kata ini.
+                        
+                        last_matched_word_index = expanded_tokens[i + plen - 1]['word_index']
+                        last_word_of_match_text = words_on_page[last_matched_word_index][4]
+                        
+                        next_word_text = ""
+                        if last_matched_word_index + 1 < len(words_on_page):
+                            next_word_text = words_on_page[last_matched_word_index + 1][4]
 
-                    search_tokens = _clean_scimago_title(journal_name).split()
-                    if not search_tokens:
-                        continue
-
-                    plen = len(search_tokens)
-                    page_token_list = [t['token'] for t in expanded_tokens]
-
-                    for i in range(len(page_token_list) - plen + 1):
-                        if page_token_list[i:i+plen] == search_tokens:
-                            matched_word_indices = [expanded_tokens[i + k]['word_index'] for k in range(plen)]
-                            unique_word_indices = []
-                            for idx in matched_word_indices:
-                                if not unique_word_indices or unique_word_indices[-1] != idx:
-                                    unique_word_indices.append(idx)
-
-                            matched_word_rects = [fitz.Rect(words_on_page[idx][:4]) for idx in unique_word_indices]
-
-                            # Tandai agar tidak diproses lagi
-                            highlighted_ref_numbers.add(ref_num)
-
-                            # Buat konten note sesuai kondisi: apakah terindeks atau tidak
-                            is_indexed = bool(result.get('is_indexed'))
-                            quartile = result.get('quartile', 'N/A')
-                            scimago_link = result.get('scimago_link', 'N/A')
-
-                            # Prepare first rect for popup
-                            first_rect_for_popup = None
-
-                            # Define pink highlight color once (used for non-indexed highlights & notes)
-                            pink_rgb = (251/255.0, 215/255.0, 222/255.0)
-                            # Define indexed journal color (used for both highlight and note)
-                            indexed_rgb = (208/255.0, 233/255.0, 222/255.0)
-
-                            # Apply highlights per word and collect first rect
-                            for wi, rect in enumerate(matched_word_rects):
-                                try:
-                                    if rect.x0 == rect.x1 or rect.y0 == rect.y1:
-                                        rect = fitz.Rect(rect.x0, rect.y0, rect.x0 + 1, rect.y0 + 1)
-                                    if first_rect_for_popup is None:
-                                        first_rect_for_popup = rect
-
-                                    # If journal is indexed -> keep existing yellow highlight behavior
-                                    if is_indexed:
-                                        h = page.add_highlight_annot(rect)
-                                        # Use same greenish tint as the indexed journal note
-                                        h.set_colors(stroke=indexed_rgb, fill=indexed_rgb)
-                                        h.update()
-                                    else:
-                                        # Non-indexed journals: pale pink -> reuse pink_rgb defined above
-                                        try:
-                                            h = page.add_highlight_annot(rect)
-                                            # set both stroke and fill to make color visible in some viewers
-                                            h.set_colors(stroke=pink_rgb, fill=pink_rgb)
-                                            h.update()
-                                        except Exception:
-                                            # fallback to rectangle with fill
-                                            try:
-                                                r_annot = page.add_rect_annot(rect)
-                                                r_annot.set_colors(stroke=pink_rgb, fill=pink_rgb)
-                                                r_annot.set_opacity(0.4)
-                                                r_annot.set_blend_mode("Multiply")
-                                                r_annot.update()
-                                            except Exception:
-                                                logger.debug("Gagal menambahkan highlight pale pink, lanjut tanpa highlight")
-
-                                except Exception as ex:
-                                    logger.warning(f"Gagal membuat highlight untuk kata pada ref {ref_num}: {ex}")
-
-
-                            # Add sticky note for indexed or non-indexed journals
-                            try:
-                                if first_rect_for_popup:
-                                    popup_pos = fitz.Point(first_rect_for_popup.x0, max(0, first_rect_for_popup.y0 - 18))
-                                    if is_indexed:
-                                        # Note for indexed journals (greenish tint)
-                                        note_text = (f"Jurnal: {result.get('parsed_journal', 'N/A')}\n"
-                                                     f"Jenis: {result.get('reference_type', 'N/A')}\n"
-                                                     f"Kuartil: {quartile}\n"
-                                                     f"Link: {scimago_link}")
-                                        note = page.add_text_annot(popup_pos, note_text)
-                                        note.set_info(title="Sumber Terindeks Scimago")
-                                        indexed_rgb = (208/255.0, 233/255.0, 222/255.0)
-                                        try:
-                                            note.set_colors(stroke=indexed_rgb, fill=indexed_rgb)
-                                        except Exception:
-                                            pass
-                                        note.update()
-                                    else:
-                                        # Non-indexed fallback (pink) — reuse pink_rgb defined above
-                                        note_text = (f"Sumber: {result.get('parsed_journal', 'N/A')}\n"
-                                                     f"Jenis: journal")
-                                        note = page.add_text_annot(popup_pos, note_text)
-                                        note.set_info(title="Sumber Tidak Terindeks Scimago")
-                                        try:
-                                            note.set_colors(stroke=pink_rgb, fill=pink_rgb)
-                                        except Exception:
-                                            pass
-                                        note.update()
-
-                            except Exception as ex:
-                                logger.warning(f"Gagal membuat popup note untuk ref {ref_num}: {ex}")
-
-                            break
-        
-            # Per-page pass: ensure outdated years are highlighted and annotated for ALL references
-            try:
-                # Use RGB(255,105,97) for year highlight and note (normalized to 0-1)
-                year_rgb = (255/255.0, 105/255.0, 97/255.0)
-                # Determine minimal allowed year from validation_results (top-level)
-                year_range_used_top = validation_results.get('year_range') if isinstance(validation_results, dict) else None
-                current_year_top = datetime.now().year
-                minimal_allowed_year_top = None
-                if isinstance(year_range_used_top, int):
-                    minimal_allowed_year_top = current_year_top - int(year_range_used_top)
-
-                annotated_year_refs = set()
-                # For every reference in detailed_results, try to find and mark its year on the current page
-                for result in detailed_results:
-                    try:
-                        ref_num = result.get('reference_number')
-                        if ref_num in annotated_year_refs:
+                        disqualifiers = ['in', 'proceedings', 'conference', 'symposium', 'report', 'book']
+                        if next_word_text.lower() in disqualifiers:
+                            continue # Batalkan kecocokan ini, cari yang lain.
+                        
+                        # Aturan tambahan: jika kata terakhir diakhiri titik dan diikuti "In" (contoh: "scientometrics. In")
+                        if last_word_of_match_text.endswith('.') and next_word_text.lower() == 'in':
                             continue
-                        parsed_year = result.get('parsed_year')
-                        if not parsed_year or minimal_allowed_year_top is None:
-                            continue
+                        
+                        used_word_indices.update(match_indices)
+                        
+                        # 4. Lakukan Highlighting & Note
                         try:
-                            if int(parsed_year) >= int(minimal_allowed_year_top):
-                                continue
-                        except Exception:
-                            continue
+                            # Ambil rect unik untuk highlight (karena 1 kata asli bisa di-split jadi beberapa token)
+                            unique_wi = sorted(list(set(match_indices)))
+                            rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]
+                            
+                            first_rect = rects_to_highlight[0] if rects_to_highlight else None
+                            is_indexed = result.get('is_indexed')
+                            color = INDEXED_RGB if is_indexed else PINK_RGB
 
-                        year_str = str(parsed_year)
-                        year_rects = []
-                        # Find tokens on this page that match the year (allow punctuation like (2020), 2020, etc.)
-                        for widx, w in enumerate(words_on_page):
-                            try:
-                                token = w[4].strip()
-                                norm = re.sub(r'^[^0-9]*(\d{4})[^0-9]*$', r"\1", token)
-                                if norm == year_str:
-                                    year_rects.append(fitz.Rect(w[:4]))
-                            except Exception:
-                                continue
-
-                        # Fallback: fullmatch with punctuation
-                        if not year_rects:
-                            for widx, w in enumerate(words_on_page):
-                                try:
-                                    if re.fullmatch(r"\(?%s\)?[\.,;:?]?" % re.escape(year_str), w[4].strip()):
-                                        year_rects.append(fitz.Rect(w[:4]))
-                                except Exception:
-                                    continue
-
-                        if not year_rects:
-                            # nothing found on this page for this reference's year
-                            continue
-
-                        first_year_rect = None
-                        for rect in year_rects:
-                            try:
-                                if rect.is_empty:
-                                    continue
-                                if rect.x0 == rect.x1 or rect.y0 == rect.y1:
-                                    rect = fitz.Rect(rect.x0, rect.y0, rect.x0 + 1, rect.y0 + 1)
-                                h = page.add_highlight_annot(rect)
-                                h.set_colors(stroke=year_rgb, fill=year_rgb)
-                                try:
-                                    # Make highlight opacity similar to fallback rect so colors match
-                                    h.set_opacity(0.4)
-                                except Exception:
-                                    pass
-                                h.update()
-                                if first_year_rect is None:
-                                    first_year_rect = rect
-                            except Exception:
-                                try:
-                                    r2 = page.add_rect_annot(rect)
-                                    r2.set_colors(stroke=year_rgb, fill=year_rgb)
-                                    # Make fallback rectangle more opaque so it visually matches highlights
-                                    try:
-                                        r2.set_opacity(0.4)
-                                    except Exception:
-                                        pass
-                                    # Use Multiply blend mode to interact with underlying text like a real highlighter
-                                    try:
-                                        r2.set_blend_mode("Multiply")
-                                    except Exception:
-                                        # If set_blend_mode not available on this PyMuPDF version, ignore
-                                        pass
-                                    # Try to remove rectangle border for closer visual match (optional)
-                                    try:
-                                        r2.set_border(width=0)
-                                    except Exception:
-                                        pass
-                                    # Finally persist the annotation changes (after blend mode)
-                                    r2.update()
-                                    if first_year_rect is None:
-                                        first_year_rect = rect
-                                except Exception:
-                                    logger.debug("Gagal menambahkan highlight tahun pada halaman")
-
-                        # Add a note anchored to top-center of first_year_rect
-                        if first_year_rect is not None:
-                            try:
-                                center_x = (first_year_rect.x0 + first_year_rect.x1) / 2.0
-                                popup_pos = fitz.Point(center_x, max(0, first_year_rect.y0 - 18))
-                                note_text = f"Tahun terbit: ({parsed_year}) | kurang dari tahun minimal: ({minimal_allowed_year_top})."
-                                note = page.add_text_annot(popup_pos, note_text)
-                                note.set_info(title="Kurang Dari Tahun minimal")
-                                try:
-                                    note.set_colors(stroke=year_rgb, fill=year_rgb)
-                                except Exception:
-                                    pass
+                            for r in rects_to_highlight:
+                                annot = page.add_highlight_annot(r)
+                                annot.set_colors(stroke=color, fill=color)
+                                annot.update()
+                            
+                            if first_rect:
+                                note_text = (f"Jurnal: {journal_name}\n"
+                                             f"Tipe: {result.get('reference_type','N/A')}\n"
+                                             f"Kuartil: {result.get('quartile','N/A')}")
+                                note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
+                                note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
+                                note.set_colors(stroke=color, fill=color)
                                 note.update()
-                            except Exception as ex:
-                                logger.warning(f"Gagal menambahkan catatan tahun untuk ref {ref_num}: {ex}")
+                        except Exception as e:
+                            logger.warning(f"Gagal highlight jurnal ref {result['reference_number']}: {e}")
 
-                        annotated_year_refs.add(ref_num)
-                    except Exception:
-                        continue
-            except Exception:
-                # don't let year-annotation failures block overall processing
-                pass
+                        break # Jurnal ini sudah ketemu di halaman ini, lanjut ke referensi berikutnya
 
+            # --- BAGIAN 4: HIGHLIGHT TAHUN OUTDATED ---
+            # Ambil tahun minimal dari hasil validasi global
+            top_level_year = validation_results.get('year_range')
+            min_year = (datetime.now().year - int(top_level_year)) if top_level_year else 0
+
+            for result in detailed_results:
+                parsed_year = result.get('parsed_year')
+                # Hanya proses jika tahun valid DAN kurang dari minimal (outdated)
+                if not parsed_year or not isinstance(parsed_year, int): continue
+                if parsed_year >= min_year: continue 
+
+                year_str = str(parsed_year)
+                
+                # Cari tahun di halaman ini yang BELUM DIKLAIM
+                match_found_on_page = False
+                for wi, w in enumerate(words_on_page):
+                    # Bersihkan kata dari tanda baca agar "2020." atau "(2020)" terbaca "2020"
+                    clean_word = re.sub(r'[^0-9]', '', w[4])
+                    
+                    # 1. Cek kecocokan tahun
+                    if clean_word == year_str:
+                        # 2. [CRITICAL FIX] Cek claim
+                        if wi in used_word_indices:
+                            continue # Tahun ini sudah dipakai referensi lain (atau bagian dari judul jurnal)
+                        
+                        # 3. Klaim
+                        used_word_indices.add(wi)
+                        match_found_on_page = True
+
+                        # 4. Highlight & Note
+                        try:
+                            r = fitz.Rect(w[:4])
+                            h = page.add_highlight_annot(r)
+                            h.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
+                            h.update()
+
+                            note_text = f"Tahun: {year_str}\nMinimal: {min_year}\nStatus: Outdated"
+                            note = page.add_text_annot(fitz.Point(r.x0, max(0, r.y0 - 15)), note_text)
+                            note.set_info(title="Tahun Outdated")
+                            note.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
+                            note.update()
+                        except Exception as e:
+                             logger.warning(f"Gagal highlight tahun ref {result['reference_number']}: {e}")
+                        
+                        break # Tahun untuk referensi INI sudah ketemu, lanjut referensi berikutnya
+
+        # Finalisasi PDF
         pdf_bytes = pdf.tobytes()
         pdf.close()
-        
         return pdf_bytes, None
 
     except Exception as e:
-        logger.error(f"Error di create_annotated_pdf_from_file: {e}", exc_info=True)
-        return None, f"Gagal membuat anotasi pada file PDF asli."
+        logger.error(f"Fatal error di create_annotated_pdf: {e}", exc_info=True)
+        return None, "Gagal total saat proses anotasi PDF."
     
 def convert_docx_to_pdf(docx_path):
     """

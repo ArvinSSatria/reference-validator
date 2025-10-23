@@ -1090,7 +1090,11 @@ def _annotate_single_column_page(
     Memproses dan menganotasi halaman SATU KOLOM dengan logika yang diadopsi 
     penuh dari _annotate_multi_column_page yang sudah sempurna.
     """
-    PATTENS_BLUE, INDEXED_RGB, PINK_RGB, YEAR_RGB = colors.values()
+    # Ekstrak warna dari dictionary - PERBAIKAN: gunakan key access seperti multi-column
+    PATTENS_BLUE = colors['PATTENS_BLUE']
+    INDEXED_RGB = colors['INDEXED_RGB']
+    PINK_RGB = colors['PINK_RGB']
+    YEAR_RGB = colors['YEAR_RGB']
     
     words_on_page = page.get_text("words")
     used_word_indices = set()
@@ -1110,8 +1114,6 @@ def _annotate_single_column_page(
             by_line[key]['word_indices'].append(wi)
             by_line[key]['words'].append(w[4])
             by_line[key]['rects'].append(fitz.Rect(w[:4]))
-    lines = sorted(by_line.values(), key=lambda d: d['y'])
-    
     lines = sorted(by_line.values(), key=lambda d: d['y'])
 
     # Helper functions
@@ -1157,8 +1159,7 @@ def _annotate_single_column_page(
     if not start_annotating:
         try:
             heading_tokens = ['daftar pustaka', 'references', 'daftar referensi', 'bibliography', 'pustaka rujukan', 'referensi']
-            for li in range(len(lines) - 1, -1, -1):
-                line = lines[li]
+            for li, line in enumerate(lines):  # ← PERBAIKAN: Cari dari DEPAN seperti multi-column
                 line_text = ' '.join(line['words']).strip().lower()
                 norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
                 found_ht = False

@@ -970,7 +970,7 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                 except Exception:
                     return None, None
                 return None, None
-
+            
             # --- BAGIAN 3: HIGHLIGHT NAMA JURNAL ---
             for result in detailed_results:
                 # Cek apakah tipe jurnal atau terindeks (sesuai permintaan user untuk highlight jurnal)
@@ -1262,8 +1262,8 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                 except Exception:
                     return False
 
-            # SINGLE SCAN dengan duplicate tracking yang BENAR
-            highlighted_years = set()
+            # SINGLE SCAN dengan duplicate tracking PER REFERENSI
+            highlighted_years_per_reference = {}  # Key: reference_start_line, Value: set of highlighted years
             
             for wi, w in enumerate(words_on_page):
                 
@@ -1309,11 +1309,40 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                     except Exception:
                         continue
                     
-                    # DUPLICATE CHECK yang BENAR
-                    year_key = (year_str, round(word_rect.x0, 1), round(word_rect.y0, 1))
-                    if year_key in highlighted_years:
+                    # Identifikasi referensi mana yang sedang kita proses
+                    try:
+                        # Cari baris awal referensi ini (untuk tracking per-referensi)
+                        reference_start_line = None
+                        bno, lno = w[5], w[6]
+                        
+                        # Cari mundur hingga 5 baris dalam blok yang sama untuk menemukan awal referensi
+                        for i in range(lno, max(-1, lno - 5), -1):
+                            key = (bno, i)
+                            line_info = by_line.get(key)
+                            if line_info:
+                                line_text = ' '.join(line_info['words'])
+                                if _is_line_a_reference_entry(line_text):
+                                    # Gunakan teks baris ini sebagai identifier unik referensi
+                                    reference_start_line = line_text
+                                    break
+                        
+                        if not reference_start_line:
+                            # Fallback: gunakan koordinat Y sebagai identifier
+                            reference_start_line = f"ref_at_y_{round(w[1], 1)}"
+                        
+                        # Inisialisasi set untuk referensi ini jika belum ada
+                        if reference_start_line not in highlighted_years_per_reference:
+                            highlighted_years_per_reference[reference_start_line] = set()
+                        
+                        # PENTING: Cek apakah tahun ini sudah di-highlight di REFERENSI INI saja
+                        if year_str in highlighted_years_per_reference[reference_start_line]:
+                            continue  # Skip, tahun ini sudah di-highlight di referensi yang sama
+                        
+                        # Tandai bahwa tahun ini sudah di-highlight di referensi ini
+                        highlighted_years_per_reference[reference_start_line].add(year_str)
+                        
+                    except Exception:
                         continue
-                    highlighted_years.add(year_key)
                     
                     try:
                         start_pos = match.start()

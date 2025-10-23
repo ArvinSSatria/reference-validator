@@ -1096,15 +1096,20 @@ def _annotate_single_column_page(
     used_word_indices = set()
     current_page_heading_rects = []
     
-    # Bangun struktur by_line
+    # Bangun struktur by_line (sama seperti multi-column)
     by_line = {}
     for wi, w in enumerate(words_on_page):
         if not w[4] or not str(w[4]).strip(): continue
         key = (w[5], w[6])
         if key not in by_line:
-            by_line[key] = {'y': w[1], 'word_indices': [wi], 'words': [w[4]], 'rects': [fitz.Rect(w[:4])]}
+            by_line[key] = {'y': w[1], 'x_min': w[0], 'x_max': w[2], 'word_indices': [wi], 'words': [w[4]], 'rects': [fitz.Rect(w[:4])]}
         else:
-            by_line[key]['word_indices'].append(wi); by_line[key]['words'].append(w[4]); by_line[key]['rects'].append(fitz.Rect(w[:4]))
+            by_line[key]['y'] = min(by_line[key]['y'], w[1])
+            by_line[key]['x_min'] = min(by_line[key]['x_min'], w[0])
+            by_line[key]['x_max'] = max(by_line[key]['x_max'], w[2])
+            by_line[key]['word_indices'].append(wi)
+            by_line[key]['words'].append(w[4])
+            by_line[key]['rects'].append(fitz.Rect(w[:4]))
     lines = sorted(by_line.values(), key=lambda d: d['y'])
     
     lines = sorted(by_line.values(), key=lambda d: d['y'])
@@ -1152,30 +1157,28 @@ def _annotate_single_column_page(
     if not start_annotating:
         try:
             heading_tokens = ['daftar pustaka', 'references', 'daftar referensi', 'bibliography', 'pustaka rujukan', 'referensi']
-            
-            # Ubah arah loop untuk mencari dari baris terakhir ke baris pertama
             for li in range(len(lines) - 1, -1, -1):
                 line = lines[li]
-                line_text = ' '.join(line['words']).strip()
-                cleaned_text = line_text.lower().strip().strip(':').strip()
-                
-                # Gunakan pencocokan yang ketat
-                if cleaned_text in heading_tokens:
-                    # Konteks tetap diperiksa ke depan (baris-baris di bawah heading)
-                    context_text = ""
-                    for j in range(li + 1, min(li + 6, len(lines))):
-                        context_text += ' '.join(lines[j]['words']) + "\n"
-                    
-                    if _looks_like_reference_line(context_text):
+                line_text = ' '.join(line['words']).strip().lower()
+                norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
+                found_ht = False
+                for ht in heading_tokens:
+                    if norm_line == ht: found_ht = True
+                    elif li + 1 < len(lines):
+                        next_text = re.sub(r'[^a-z0-9\s]', '', ' '.join(lines[li + 1]['words']).strip().lower())
+                        if f"{norm_line} {next_text}".strip() == ht:
+                            found_ht = True
+                            line['rects'].extend(lines[li + 1]['rects'])
+                if found_ht:
+                    context = ' '.join([' '.join(lines[j]['words']) for j in range(li + 1, min(len(lines), li + 8))])
+                    if _looks_like_reference_line(context):
                         start_annotating = True
                         current_page_heading_rects = line['rects']
-                        logger.info(f"🎯 Ditemukan & diverifikasi judul Daftar Pustaka di hal. {page_num + 1} (satu kolom, pencarian terbalik).")
-                        break # Ditemukan heading yang benar, hentikan pencarian.
-            
+                        logger.info(f"🎯 Ditemukan judul Daftar Pustaka di halaman {page_num + 1}, Y={line['y']:.1f}, memulai anotasi.")
+                        break
             if not start_annotating:
                 return start_annotating, added_references_summary, []
-        except Exception as e:
-            logger.warning(f"Error saat deteksi heading (satu kolom): {e}")
+        except Exception:
             return start_annotating, added_references_summary, []
 
     # BAGIAN 2: SUMMARY NOTE PADA HEADING
@@ -1353,29 +1356,20 @@ def _annotate_single_column_page(
             return None, None
         return None, None
 
-    # BAGIAN 3: HIGHLIGHT NAMA JURNAL
+    # BAGIAN 3: HIGHLIGHT NAMA JURNAL (sama seperti multi-column)
     for result in detailed_results:
         is_journal_or_indexed = (result.get('reference_type') == 'journal') or result.get('is_indexed')
-        if not is_journal_or_indexed: 
-            continue
-        
+        if not is_journal_or_indexed: continue
         journal_name = result.get('parsed_journal')
-        if not journal_name or len(journal_name) < 2: 
-            continue
-        
+        if not journal_name or len(journal_name) < 2: continue
         search_tokens = _clean_scimago_title(journal_name).split()
-        if not search_tokens: 
-            continue
-        
+        if not search_tokens: continue
         plen = len(search_tokens)
         matched = False
-        
         for i in range(len(expanded_tokens) - max(plen, 1) + 1):
             potential_match_tokens = [t['token'] for t in expanded_tokens[i:i+plen]]
             matched_window_len = None
-            
-            if potential_match_tokens == search_tokens: 
-                matched_window_len = plen
+            if potential_match_tokens == search_tokens: matched_window_len = plen
             elif len(search_tokens) == 1:
                 query, combined, tmp_indices = search_tokens[0], "", []
                 max_join = min(len(expanded_tokens) - i, max(2, len(query)))
@@ -1383,33 +1377,21 @@ def _annotate_single_column_page(
                     tok = expanded_tokens[i + k]['token']
                     combined += tok
                     tmp_indices.append(expanded_tokens[i + k]['word_index'])
-                    if not query.startswith(combined): 
-                        break
+                    if not query.startswith(combined): break
                     if combined == query:
                         potential_match_tokens, matched_window_len = [combined], k + 1
                         break
-            
             if matched_window_len is not None:
                 match_indices = [expanded_tokens[i+k]['word_index'] for k in range(matched_window_len)]
-                if any(idx in used_word_indices for idx in match_indices): 
-                    continue
-                
-                # CRITICAL: Pastikan match berada di region referensi (setelah heading)
-                first_match_rect = fitz.Rect(words_on_page[match_indices[0]][:4])
-                if current_page_heading_rects:
-                    heading_bottom = max(r.y1 for r in current_page_heading_rects)
-                    if first_match_rect.y0 < heading_bottom:
-                        continue  # Skip jika di atas/sebelum heading referensi
+                if any(idx in used_word_indices for idx in match_indices): continue
                 
                 last_matched_word_index = expanded_tokens[i + matched_window_len - 1]['word_index']
                 last_word_of_match_text = words_on_page[last_matched_word_index][4]
                 
-                # Mark semua kata dalam region referensi ini sebagai "used" untuk mencegah overlap
                 ref_num = result.get('reference_number')
                 if ref_num and ref_num in markers_by_number:
                     marker_info = markers_by_number[ref_num]
                     marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
-                    # Hanya mark kata-kata dalam bounding box referensi ini
                     for wi, w in enumerate(words_on_page):
                         word_y = w[1]
                         if word_y >= marker_y - 5:
@@ -1419,16 +1401,10 @@ def _annotate_single_column_page(
                 next_word_text = ""
                 if last_matched_word_index + 1 < len(words_on_page):
                     next_word_text = words_on_page[last_matched_word_index + 1][4]
-                
-                # Filter out jurnal yang muncul dalam konteks bukan nama jurnal
-                if next_word_text.lower() in ['in', 'proceedings', 'conference', 'symposium', 'report', 'book']: 
-                    continue
-                if last_word_of_match_text.endswith('.') and next_word_text.lower() == 'in': 
-                    continue
-                if _is_within_quotes(match_indices) or _is_within_quotes_extended(match_indices): 
-                    continue
-                if _has_any_quotes_nearby(match_indices) and not _appears_after_closing_quote(match_indices): 
-                    continue
+                if next_word_text.lower() in ['in', 'proceedings', 'conference', 'symposium', 'report', 'book']: continue
+                if last_word_of_match_text.endswith('.') and next_word_text.lower() == 'in': continue
+                if _is_within_quotes(match_indices) or _is_within_quotes_extended(match_indices): continue
+                if _has_any_quotes_nearby(match_indices) and not _appears_after_closing_quote(match_indices): continue
                 
                 used_word_indices.update(match_indices)
                 try:
@@ -1437,65 +1413,42 @@ def _annotate_single_column_page(
                     first_rect = rects_to_highlight[0] if rects_to_highlight else None
                     is_indexed = result.get('is_indexed')
                     color = INDEXED_RGB if is_indexed else PINK_RGB
-                    
                     for r in rects_to_highlight:
                         annot = page.add_highlight_annot(r)
                         annot.set_colors(stroke=color, fill=color)
                         annot.update()
-                    
                     if first_rect:
-                        note_text = (
-                            f"Jurnal: {journal_name}\n"
-                            f"Tipe: {result.get('reference_type','N/A')}\n"
-                            f"Kuartil: {result.get('quartile','N/A')}"
-                        )
+                        note_text = (f"Jurnal: {journal_name}\n"
+                                     f"Tipe: {result.get('reference_type','N/A')}\n"
+                                     f"Kuartil: {result.get('quartile','N/A')}")
                         note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
                         note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
                         note.set_colors(stroke=color, fill=color)
                         note.update()
-                    
-                    logger.info(f"✓ Highlighted jurnal '{journal_name}' untuk ref #{ref_num}")
                 except Exception as e:
-                    logger.warning(f"Gagal highlight jurnal ref {result.get('reference_number')}: {e}")
-                
+                    logger.warning(f"Gagal highlight jurnal ref {result['reference_number']}: {e}")
                 matched = True
                 break
-        
-        # Jika tidak match dengan metode ketat, coba fallback yang lebih permisif
         if not matched:
-            # Fallback 1: Cari setelah tanda kutip penutup
             cand_indices, first_rect = _fallback_highlight_journal_after_quote(search_tokens)
-            if cand_indices:
-                # Pastikan berada di region referensi
-                first_rect_check = fitz.Rect(words_on_page[cand_indices[0]][:4])
-                if current_page_heading_rects:
-                    heading_bottom = max(r.y1 for r in current_page_heading_rects)
-                    if first_rect_check.y0 < heading_bottom:
-                        cand_indices = None  # Batalkan jika di luar region
-            
             if cand_indices:
                 try:
                     unique_wi = sorted(list(set(cand_indices)))
                     rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]
                     is_indexed = result.get('is_indexed')
                     color = INDEXED_RGB if is_indexed else PINK_RGB
-                    
                     for r in rects_to_highlight:
                         annot = page.add_highlight_annot(r)
                         annot.set_colors(stroke=color, fill=color)
                         annot.update()
-                    
                     if first_rect:
-                        note_text = (
-                            f"Jurnal: {journal_name}\n"
-                            f"Tipe: {result.get('reference_type','N/A')}\n"
-                            f"Kuartil: {result.get('quartile','N/A')}"
-                        )
+                        note_text = (f"Jurnal: {journal_name}\n"
+                                     f"Tipe: {result.get('reference_type','N/A')}\n"
+                                     f"Kuartil: {result.get('quartile','N/A')}")
                         note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
                         note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
                         note.set_colors(stroke=color, fill=color)
                         note.update()
-                    
                     ref_num = result.get('reference_number')
                     if ref_num and ref_num in markers_by_number:
                         marker_info = markers_by_number[ref_num]
@@ -1505,74 +1458,9 @@ def _annotate_single_column_page(
                             if word_y >= marker_y - 5:
                                 if next_marker_y is None or word_y < next_marker_y - 5:
                                     used_word_indices.add(wi)
-                    for wi in unique_wi: 
-                        used_word_indices.add(wi)
-                    
-                    logger.info(f"✓ (Fallback) Highlighted jurnal '{journal_name}' untuk ref #{result.get('reference_number')}")
-                    matched = True
+                    for wi in unique_wi: used_word_indices.add(wi)
                 except Exception as e:
-                    logger.warning(f"Fallback highlight gagal untuk ref {result.get('reference_number')}: {e}")
-            
-            # Fallback 2: Cari dengan fuzzy matching (toleransi 70%)
-            if not matched:
-                try:
-                    for i in range(len(expanded_tokens) - max(1, len(search_tokens) - 2) + 1):
-                        window_size = min(len(search_tokens) + 2, len(expanded_tokens) - i)
-                        window_tokens = [t['token'] for t in expanded_tokens[i:i+window_size]]
-                        
-                        # Hitung similarity
-                        matches = sum(1 for tok in search_tokens if tok in window_tokens)
-                        similarity = matches / len(search_tokens) if search_tokens else 0
-                        
-                        if similarity >= 0.7:  # 70% kecocokan
-                            match_indices = [expanded_tokens[i+k]['word_index'] for k in range(len(search_tokens))]
-                            
-                            # Check region referensi
-                            first_match_rect = fitz.Rect(words_on_page[match_indices[0]][:4])
-                            if current_page_heading_rects:
-                                heading_bottom = max(r.y1 for r in current_page_heading_rects)
-                                if first_match_rect.y0 < heading_bottom:
-                                    continue
-                            
-                            if any(idx in used_word_indices for idx in match_indices):
-                                continue
-                            
-                            # Skip jika dalam kutipan
-                            if _is_within_quotes(match_indices) or _is_within_quotes_extended(match_indices):
-                                continue
-                            
-                            used_word_indices.update(match_indices)
-                            unique_wi = sorted(list(set(match_indices)))
-                            rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]
-                            is_indexed = result.get('is_indexed')
-                            color = INDEXED_RGB if is_indexed else PINK_RGB
-                            
-                            for r in rects_to_highlight:
-                                annot = page.add_highlight_annot(r)
-                                annot.set_colors(stroke=color, fill=color)
-                                annot.update()
-                            
-                            first_rect = rects_to_highlight[0] if rects_to_highlight else None
-                            if first_rect:
-                                note_text = (
-                                    f"Jurnal: {journal_name}\n"
-                                    f"Tipe: {result.get('reference_type','N/A')}\n"
-                                    f"Kuartil: {result.get('quartile','N/A')}"
-                                )
-                                note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
-                                note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
-                                note.set_colors(stroke=color, fill=color)
-                                note.update()
-                            
-                            logger.info(f"✓ (Fuzzy) Highlighted jurnal '{journal_name}' untuk ref #{result.get('reference_number')}")
-                            matched = True
-                            break
-                except Exception as e:
-                    logger.warning(f"Fuzzy matching gagal: {e}")
-            
-            # Log jika tidak berhasil sama sekali
-            if not matched:
-                logger.warning(f"⚠ Jurnal '{journal_name}' (ref #{result.get('reference_number')}) TIDAK ditemukan di halaman {page_num + 1}")
+                    logger.warning(f"Fallback highlight gagal untuk ref {result['reference_number']}: {e}")
 
     # BAGIAN 4: HIGHLIGHT TAHUN OUTDATED
     top_level_year = validation_results.get('year_range')

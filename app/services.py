@@ -18,6 +18,7 @@ from docx2pdf import convert
 import tempfile
 import shutil
 import subprocess
+from statistics import median
 
 logger = logging.getLogger(__name__)
 
@@ -254,17 +255,51 @@ def _extract_references_from_pdf(file_stream):
         full_text = "".join(page.get_text("text", sort=True) + "\n" for page in doc)
         doc.close()
         paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
-        
-        REFERENCE_HEADINGS = ["daftar pustaka", "daftar referensi", "referensi", "bibliography", "references", "pustaka rujukan"]
+
+        REFERENCE_HEADINGS = [
+            "daftar pustaka", "daftar referensi", "referensi",
+            "bibliography", "references", "pustaka rujukan", "reference"
+        ]
+        # Normalizer to handle spaced small-caps like "R E F E R E N C E S"
+        def _norm_heading(s: str) -> str:
+            s = s.lower()
+            # keep letters only to collapse spaced caps, drop digits/punct
+            return re.sub(r'[^a-z]+', '', s)
+
+        targets = [re.sub(r'\s+', '', h) for h in REFERENCE_HEADINGS]
         start_index = -1
 
-        # Cari judul "Daftar Pustaka" dari depan ke belakang
+        # 1) Cari judul dari depan ke belakang (toleran terhadap small-caps/spacing dan colon)
         for i, para in enumerate(paragraphs):
-            if any(h in para.lower() for h in REFERENCE_HEADINGS) and len(para.split()) < 5:
+            para_clean = para.lower().strip(':').strip()
+            norm_line = _norm_heading(para_clean)
+            if any(t in norm_line for t in targets) and len(para.split()) <= 8:
                 start_index = i
-                logger.info(f"Judul Daftar Pustaka ditemukan di PDF pada paragraf #{i}: '{para}'")
+                logger.info(f"Judul Daftar Pustaka/References ditemukan di paragraf #{i}: '{para}'")
                 break
+
+        # 2) Cek kemungkinan judul dua baris (gabungkan dua baris bertetangga)
+        if start_index == -1:
+            for i in range(len(paragraphs) - 1):
+                comb = paragraphs[i] + ' ' + paragraphs[i + 1]
+                if any(t in _norm_heading(comb) for t in targets):
+                    start_index = i + 1  # konten mulai di bawah baris kedua
+                    logger.info(f"Judul References terdeteksi dalam dua baris di sekitar paragraf #{i} dan #{i+1}")
+                    break
         
+        if start_index == -1:
+            # 3) Fallback konservatif: cari blok yang tampak seperti referensi di paruh akhir dokumen
+            half = max(0, len(paragraphs) // 2)
+            for i in range(half, len(paragraphs)):
+                window = paragraphs[i:i + 8]
+                if not window:
+                    continue
+                ref_like = sum(1 for p in window if _is_likely_reference(p))
+                if ref_like >= 3:
+                    start_index = i
+                    logger.info("Fallback: Menggunakan deteksi pola referensi tanpa heading eksplisit.")
+                    break
+
         if start_index == -1:
             return None, "Judul bagian 'Daftar Pustaka' / 'References' tidak ditemukan dalam dokumen PDF."
 
@@ -602,59 +637,107 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
             return False
 
         for page_num, page in enumerate(pdf):
-            words_on_page = page.get_text("words") # Returns list of (x0,y0,x1,y1, "word", block_no, line_no, word_no)
+            words_on_page = page.get_text("words")  # (x0,y0,x1,y1, word, block_no, line_no, word_no)
 
             used_word_indices = set()
+            
+            # ✅ RESET heading_rects untuk setiap halaman (hindari carry-over dari page sebelumnya)
+            current_page_heading_rects = []
+
+            # Group words by (block_no, line_no) to create reliable line structures
+            by_line = {}
+            for wi, w in enumerate(words_on_page):
+                if not w[4] or not str(w[4]).strip():
+                    continue
+                key = (w[5], w[6])
+                if key not in by_line:
+                    by_line[key] = {
+                        'y': w[1],
+                        'x_min': w[0],
+                        'x_max': w[2],
+                        'word_indices': [wi],
+                        'words': [w[4]],
+                        'rects': [fitz.Rect(w[:4])]
+                    }
+                else:
+                    by_line[key]['y'] = min(by_line[key]['y'], w[1])
+                    by_line[key]['x_min'] = min(by_line[key]['x_min'], w[0])
+                    by_line[key]['x_max'] = max(by_line[key]['x_max'], w[2])
+                    by_line[key]['word_indices'].append(wi)
+                    by_line[key]['words'].append(w[4])
+                    by_line[key]['rects'].append(fitz.Rect(w[:4]))
+
+            # Convert to ordered list of lines, sorted by Y
+            lines = sorted(by_line.values(), key=lambda d: d['y'])
+
+            # --- KUMPULKAN MARKER NOMOR REFERENSI DI HALAMAN INI ---
+            def _collect_reference_markers(words):
+                markers = []  # list of dict {num:int, y:float, x:float, wi:int}
+                for wi, w in enumerate(words):
+                    t = str(w[4]).strip()
+                    m = None
+                    # Bentuk umum dalam satu token
+                    for pat in [r'^\[(\d+)\]$', r'^\((\d+)\)$', r'^(\d+)\.$']:
+                        m = re.match(pat, t)
+                        if m:
+                            try:
+                                num = int(m.group(1))
+                                markers.append({'num': num, 'y': w[1], 'x': (w[0]+w[2])/2.0, 'wi': wi})
+                            except Exception:
+                                pass
+                            break
+                # Urutkan berdasarkan y (atas ke bawah)
+                markers.sort(key=lambda d: d['y'])
+                return markers
+
+            markers = _collect_reference_markers(words_on_page)
+            markers_by_number = {}
+            for idx, mk in enumerate(markers):
+                mk_next_y = markers[idx + 1]['y'] if idx + 1 < len(markers) else None
+                mk['next_y'] = mk_next_y
+                markers_by_number[mk['num']] = mk
 
             # --- BAGIAN 1: DETEKSI & SUMMARY HEADING (Tidak berubah banyak) ---
             if not start_annotating:
                 # (Logika deteksi heading dipertahankan sama seperti sebelumnya agar stabil)
                 try:
                     heading_tokens = ['daftar pustaka', 'references', 'daftar referensi', 'bibliography', 'pustaka rujukan', 'referensi']
-                    lines = []
-                    for wi, w in enumerate(words_on_page):
-                        x0, y0, x1, y1, txt = w[0], w[1], w[2], w[3], w[4]
-                        if not txt or not txt.strip(): continue
-                        if not lines or abs(y0 - lines[-1]['y']) > 3:
-                            lines.append({'y': y0, 'words':[txt], 'word_indices':[wi], 'rects':[fitz.Rect(w[:4])]})
-                        else:
-                            lines[-1]['words'].append(txt)
-                            lines[-1]['word_indices'].append(wi)
-                            lines[-1]['rects'].append(fitz.Rect(w[:4]))
 
-                    heading_rects = []
                     for li, line in enumerate(lines):
                         line_text = ' '.join(line['words']).strip().lower()
                         norm_line = re.sub(r'[^a-z0-9\s]', '', line_text)
-                        
+
                         found_ht = False
                         for ht in heading_tokens:
                             if norm_line == ht:
                                 found_ht = True
-                            elif li+1 < len(lines):
-                                next_text = re.sub(r'[^a-z0-9\s]', '', ' '.join(lines[li+1]['words']).strip().lower())
+                            elif li + 1 < len(lines):
+                                next_text = re.sub(r'[^a-z0-9\s]', '', ' '.join(lines[li + 1]['words']).strip().lower())
                                 if f"{norm_line} {next_text}".strip() == ht:
                                     found_ht = True
                                     # Tambahkan rects baris berikutnya jika judul 2 baris
-                                    line['rects'].extend(lines[li+1]['rects'])
+                                    line['rects'].extend(lines[li + 1]['rects'])
 
                         if found_ht:
                             # Cek konteks 7 baris ke depan
-                            context = ' '.join([' '.join(lines[j]['words']) for j in range(li+1, min(len(lines), li+8))])
+                            context = ' '.join([' '.join(lines[j]['words']) for j in range(li + 1, min(len(lines), li + 8))])
                             if _looks_like_reference_line(context):
                                 start_annotating = True
-                                heading_rects = line['rects']
+                                current_page_heading_rects = line['rects']
+                                logger.info(f"🎯 FOUND References heading at page {page_num + 1}, Y={line['y']:.1f}, start_annotating=True")
                                 break
-                    
-                    if not start_annotating: continue # Lanjut ke halaman berikutnya jika belum ketemu
 
-                except Exception: continue
+                    if not start_annotating:
+                        continue  # Lanjut ke halaman berikutnya jika belum ketemu
+
+                except Exception:
+                    continue
 
             # --- BAGIAN 2: GAMBAR SUMMARY NOTE PADA HEADING ---
-            if start_annotating and not added_references_summary and heading_rects:
+            if start_annotating and not added_references_summary and current_page_heading_rects:
                 try:
-                    heading_full = fitz.Rect(heading_rects[0])
-                    for r in heading_rects[1:]: heading_full.include_rect(r)
+                    heading_full = fitz.Rect(current_page_heading_rects[0])
+                    for r in current_page_heading_rects[1:]: heading_full.include_rect(r)
                     
                     # Highlight Heading
                     h = page.add_highlight_annot(heading_full)
@@ -702,6 +785,192 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                     for part in cleaned.split():
                         expanded_tokens.append({'token': part, 'word_index': wi, 'rect': fitz.Rect(w[:4])})
             
+            def _is_line_a_reference_entry(text_line: str) -> bool:
+                """
+                Memeriksa apakah sebuah baris teks dimulai dengan format yang umum
+                untuk entri daftar pustaka.
+                """
+                line = text_line.strip()
+                # Dimulai dengan [1] atau (1) atau 1.
+                if re.match(r'^(\[\d+\]|\(\d+\)|\d+\.)', line):
+                    return True
+                # Dimulai dengan format Nama, F. (gaya APA, Chicago, dll.)
+                if re.match(r'^[A-Z][a-zA-Z\-\']{2,},\s+([A-Z]\.\s?)+', line):
+                    return True
+                return False
+            
+            # Helper: strict detector for reference entry starts (avoid body text with citation years)
+            def _looks_like_reference_entry_start_line_text(t: str) -> bool:
+                t = t.strip()
+                if re.match(r'^(\[\d+\]|\(\d+\)|\d+\.)', t):
+                    # Hindari bagian outline/penomoran body: wajib ada indikasi referensi (tahun 4 digit)
+                    return bool(re.search(r'(19|20)\d{2}', t))
+                if re.match(r'^[A-Z][a-zA-Z\-\']{2,},\s([A-Z]\.\s?)+', t):
+                    return True
+                return False
+
+            # Helper: check if a matched token sequence sits within quotes on its line (likely article title)
+            def _is_within_quotes(match_word_indices):
+                if not match_word_indices:
+                    return False
+                # assume all tokens are on the same line; if not, use the first one's line
+                first_wi = match_word_indices[0]
+                if first_wi < 0 or first_wi >= len(words_on_page):
+                    return False
+                key = (words_on_page[first_wi][5], words_on_page[first_wi][6])
+                line = by_line.get(key)
+                if not line:
+                    return False
+                texts = line['words']
+                # locate quote-like tokens in the line
+                quote_open_chars = {'"', '“', '‘', "'"}
+                quote_close_chars = {'"', '”', '’', "'"}
+                first_quote_idx = None
+                last_quote_idx = None
+                for idx, t in enumerate(texts):
+                    if any(ch in t for ch in quote_open_chars):
+                        if first_quote_idx is None:
+                            first_quote_idx = idx
+                    if any(ch in t for ch in quote_close_chars):
+                        last_quote_idx = idx
+                if first_quote_idx is None or last_quote_idx is None or last_quote_idx <= first_quote_idx:
+                    return False
+                min_m = min(match_word_indices)
+                max_m = max(match_word_indices)
+                # map indices in the full page to indices in this line
+                try:
+                    rel_indices = [line['word_indices'].index(i) for i in match_word_indices]
+                except ValueError:
+                    return False
+                return min(rel_indices) > first_quote_idx and max(rel_indices) < last_quote_idx
+
+            # Heuristic: extend quotes detection across adjacent lines within the same block
+            def _is_within_quotes_extended(match_word_indices):
+                try:
+                    if _is_within_quotes(match_word_indices):
+                        return True
+                    wi = match_word_indices[0]
+                    bno = words_on_page[wi][5]
+                    lno = words_on_page[wi][6]
+                    # collect prev, curr, next lines in same block
+                    neighbors = []
+                    for dl in (-1, 0, 1):
+                        key = (bno, lno + dl)
+                        if key in by_line:
+                            neighbors.append(' '.join(by_line[key]['words']))
+                    joined = '\n'.join(neighbors)
+                    # Count quotes; if odd count before the match line, assume inside quotes
+                    # Simplified parity approach
+                    quote_chars = ['"', '“', '”', '‘', '’', "'"]
+                    total_quotes = sum(joined.count(ch) for ch in quote_chars)
+                    # If there are at least 2 quotes in neighbors, and current line sits between, we assume it's within quotes
+                    return total_quotes >= 2 and any(ch in neighbors[0] for ch in quote_chars)
+                except Exception:
+                    return False
+
+            # ✅ NEW FUNCTION: Verifikasi bahwa matched text muncul SETELAH tanda kutip penutup
+            def _appears_after_closing_quote(match_word_indices):
+                """
+                Dalam format APA, nama jurnal SELALU muncul setelah penutup kutip judul artikel:
+                Penulis (Tahun). "Judul Artikel." Nama Jurnal, Volume.
+                
+                Returns True jika matched text muncul setelah tanda kutip penutup
+                (kemungkinan besar adalah nama jurnal yang benar)
+                """
+                if not match_word_indices:
+                    return False
+                
+                first_match_wi = match_word_indices[0]
+                
+                # Tanda kutip penutup yang umum digunakan (termasuk variasi Unicode)
+                quote_close_chars = {'"', '”', '’', "'", '»', '›'}
+                
+                # Scan backward dari match position (max 20 kata ke belakang)
+                # untuk mencari tanda kutip penutup
+                for i in range(first_match_wi - 1, max(0, first_match_wi - 20), -1):
+                    word_text = words_on_page[i][4]
+                    
+                    # Cek apakah word ini mengandung tanda kutip penutup
+                    if any(ch in word_text for ch in quote_close_chars):
+                        # ✅ Ditemukan tanda kutip penutup sebelum match
+                        # Ini kemungkinan besar adalah nama jurnal yang benar
+                        return True
+                    
+                    # Stop jika menemukan nomor referensi (berarti kita sudah melewati batas)
+                    if i == max(0, first_match_wi - 20):
+                        break
+                
+                return False
+
+            # NEW: detect if there are any quote characters around the match line (same block, +/- 1 line)
+            def _has_any_quotes_nearby(match_word_indices):
+                try:
+                    if not match_word_indices:
+                        return False
+                    wi = match_word_indices[0]
+                    bno = words_on_page[wi][5]
+                    lno = words_on_page[wi][6]
+                    neighbors = []
+                    for dl in (-1, 0, 1):
+                        key = (bno, lno + dl)
+                        if key in by_line:
+                            neighbors.append(' '.join(by_line[key]['words']))
+                    joined = '\n'.join(neighbors)
+                    quote_chars = ['"', '“', '”', '‘', '’', "'"]
+                    return any(ch in joined for ch in quote_chars)
+                except Exception:
+                    return False
+
+            # Fallback: setelah tanda kutip penutup, ambil frasa berikutnya sebagai kandidat nama jurnal
+            def _fallback_highlight_journal_after_quote(clean_query_tokens):
+                """Cari tanda kutip penutup di halaman, lalu ambil 1-5 kata setelahnya
+                sebagai kandidat nama jurnal, dan cocokkan secara ringan.
+                Return: tuple(highlight_indices:list[int], first_rect:fitz.Rect) atau (None, None)
+                """
+                try:
+                    stop_tokens = {'vol', 'volume', 'no', 'issue', 'pages', 'pp', 'doi', 'https', 'http'}
+                    for wi, w in enumerate(words_on_page):
+                        t = w[4]
+                        if any(ch in t for ch in ['"', '”', '’', "'", '»', '›']):
+                            # ambil sampai 5 kata berikutnya sebagai kandidat
+                            cand_indices = []
+                            cand_tokens = []
+                            for k in range(1, 6):
+                                if wi + k >= len(words_on_page):
+                                    break
+                                nxt = words_on_page[wi + k][4]
+                                cleaned = _clean_scimago_title(nxt)
+                                if not cleaned:
+                                    continue
+                                # stop jika ketemu token penghenti
+                                if cleaned in stop_tokens:
+                                    break
+                                cand_indices.append(wi + k)
+                                cand_tokens.append(cleaned)
+                                # untuk nama satu token (mis. pnas, ecancer) cukup 1 token
+                                if len(clean_query_tokens) == 1 and len(cand_tokens) >= 1:
+                                    break
+                            if not cand_tokens:
+                                continue
+                            # kecocokan ringan: exact pada token pertama atau semua token sama
+                            if len(clean_query_tokens) == 1:
+                                if cand_tokens[0] == clean_query_tokens[0]:
+                                    # valid kandidat
+                                    rects = [fitz.Rect(words_on_page[idx][:4]) for idx in cand_indices[:1]]
+                                    return cand_indices[:1], (rects[0] if rects else None)
+                            else:
+                                # bandingkan dengan jaccard pada set token kecil
+                                qset = set(clean_query_tokens)
+                                cset = set(cand_tokens)
+                                inter = len(qset & cset)
+                                uni = max(1, len(qset | cset))
+                                if inter / uni >= 0.6:
+                                    rects = [fitz.Rect(words_on_page[idx][:4]) for idx in cand_indices]
+                                    return cand_indices, (rects[0] if rects else None)
+                except Exception:
+                    return None, None
+                return None, None
+
             # --- BAGIAN 3: HIGHLIGHT NAMA JURNAL ---
             for result in detailed_results:
                 # Cek apakah tipe jurnal atau terindeks (sesuai permintaan user untuk highlight jurnal)
@@ -716,19 +985,60 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                 plen = len(search_tokens)
 
                 # Scan halaman ini untuk mencari jurnal tersebut
-                for i in range(len(expanded_tokens) - plen + 1):
-                    # 1. Cek kecocokan token
+                matched = False
+                for i in range(len(expanded_tokens) - max(plen, 1) + 1):
+                    # 1. Cek kecocokan token (default, per-kata)
                     potential_match_tokens = [t['token'] for t in expanded_tokens[i:i+plen]]
+                    matched_window_len = None
                     if potential_match_tokens == search_tokens:
+                        matched_window_len = plen
+                    # 1b. Fallback untuk kasus small-caps/letter-spaced (mis. P N A S -> "PNAS")
+                    elif len(search_tokens) == 1:
+                        query = search_tokens[0]
+                        combined = ""
+                        tmp_indices = []
+                        # Batasi panjang gabungan untuk efisiensi
+                        max_join = min(len(expanded_tokens) - i, max(2, len(query)))
+                        for k in range(max_join):
+                            tok = expanded_tokens[i + k]['token']
+                            combined += tok
+                            tmp_indices.append(expanded_tokens[i + k]['word_index'])
+                            # Early stop jika tidak lagi prefix dari query
+                            if not query.startswith(combined):
+                                break
+                            if combined == query:
+                                potential_match_tokens = [combined]
+                                matched_window_len = k + 1
+                                break
+
+                    if matched_window_len is not None:
                         # 2. [CRITICAL FIX] Cek apakah kata-kata ini SUDAH DIPAKAI referensi lain?
-                        match_indices = [expanded_tokens[i+k]['word_index'] for k in range(plen)]
+                        match_indices = [expanded_tokens[i+k]['word_index'] for k in range(matched_window_len)]
                         if any(idx in used_word_indices for idx in match_indices):
                             continue # Skip! Cari kemunculan berikutnya di halaman ini.
                         
                         # 3. Jika belum dipakai, KLAIM kata-kata ini.
-                        
-                        last_matched_word_index = expanded_tokens[i + plen - 1]['word_index']
+                        last_matched_word_index = expanded_tokens[i + matched_window_len - 1]['word_index']
                         last_word_of_match_text = words_on_page[last_matched_word_index][4]
+                        
+                        # 🔥 CRITICAL: CLAIM SELURUH REFERENCE ENTRY!
+                        # Cari Y coordinate dari jurnal match
+                        first_match_word_idx = match_indices[0]
+                        journal_y = words_on_page[first_match_word_idx][1]
+                        
+                        # Find reference marker for this entry
+                        ref_num = result.get('reference_number')
+                        if ref_num and ref_num in markers_by_number:
+                            marker_info = markers_by_number[ref_num]
+                            marker_y = marker_info['y']
+                            next_marker_y = marker_info.get('next_y')
+                            
+                            # CLAIM all words in this reference entry (between this marker and next marker)
+                            for wi, w in enumerate(words_on_page):
+                                word_y = w[1]
+                                if word_y >= marker_y - 5:  # Start from marker
+                                    if next_marker_y is None or word_y < next_marker_y - 5:
+                                        used_word_indices.add(wi)
                         
                         next_word_text = ""
                         if last_matched_word_index + 1 < len(words_on_page):
@@ -741,6 +1051,16 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                         # Aturan tambahan: jika kata terakhir diakhiri titik dan diikuti "In" (contoh: "scientometrics. In")
                         if last_word_of_match_text.endswith('.') and next_word_text.lower() == 'in':
                             continue
+
+                        # FILTER 1: If the matched phrase is within quotes on its line, likely part of article title → skip
+                        if _is_within_quotes(match_indices) or _is_within_quotes_extended(match_indices):
+                            continue
+                        
+                        # FILTER 2: Require "after closing quote" ONLY when quotes exist nearby; otherwise, don't block
+                        if _has_any_quotes_nearby(match_indices):
+                            if not _appears_after_closing_quote(match_indices):
+                                # Skip jika match TIDAK muncul setelah kutip penutup (kemungkinan bagian dari judul)
+                                continue
                         
                         used_word_indices.update(match_indices)
                         
@@ -770,55 +1090,265 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
                         except Exception as e:
                             logger.warning(f"Gagal highlight jurnal ref {result['reference_number']}: {e}")
 
+                        matched = True
                         break # Jurnal ini sudah ketemu di halaman ini, lanjut ke referensi berikutnya
 
-            # --- BAGIAN 4: HIGHLIGHT TAHUN OUTDATED ---
-            # Ambil tahun minimal dari hasil validasi global
-            top_level_year = validation_results.get('year_range')
-            min_year = (datetime.now().year - int(top_level_year)) if top_level_year else 0
-
-            for result in detailed_results:
-                parsed_year = result.get('parsed_year')
-                # Hanya proses jika tahun valid DAN kurang dari minimal (outdated)
-                if not parsed_year or not isinstance(parsed_year, int): continue
-                if parsed_year >= min_year: continue 
-
-                year_str = str(parsed_year)
-                
-                # Cari tahun di halaman ini yang BELUM DIKLAIM
-                match_found_on_page = False
-                for wi, w in enumerate(words_on_page):
-                    # Bersihkan kata dari tanda baca agar "2020." atau "(2020)" terbaca "2020"
-                    clean_word = re.sub(r'[^0-9]', '', w[4])
-                    
-                    # 1. Cek kecocokan tahun
-                    if clean_word == year_str:
-                        # 2. [CRITICAL FIX] Cek claim
-                        if wi in used_word_indices:
-                            continue # Tahun ini sudah dipakai referensi lain (atau bagian dari judul jurnal)
-                        
-                        # 3. Klaim
-                        used_word_indices.add(wi)
-                        match_found_on_page = True
-
-                        # 4. Highlight & Note
+                # Fallback: jika belum matched dengan pencarian token biasa, coba heuristik setelah tanda kutip
+                if not matched:
+                    cand_indices, first_rect = _fallback_highlight_journal_after_quote(search_tokens)
+                    if cand_indices:
                         try:
-                            r = fitz.Rect(w[:4])
-                            h = page.add_highlight_annot(r)
-                            h.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
-                            h.update()
-
-                            note_text = f"Tahun: {year_str}\nMinimal: {min_year}\nStatus: Outdated"
-                            note = page.add_text_annot(fitz.Point(r.x0, max(0, r.y0 - 15)), note_text)
-                            note.set_info(title="Tahun Outdated")
-                            note.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
-                            note.update()
+                            unique_wi = sorted(list(set(cand_indices)))
+                            rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]
+                            is_indexed = result.get('is_indexed')
+                            color = INDEXED_RGB if is_indexed else PINK_RGB
+                            for r in rects_to_highlight:
+                                annot = page.add_highlight_annot(r)
+                                annot.set_colors(stroke=color, fill=color)
+                                annot.update()
+                            if first_rect:
+                                note_text = (f"Jurnal: {journal_name}\n"
+                                             f"Tipe: {result.get('reference_type','N/A')}\n"
+                                             f"Kuartil: {result.get('quartile','N/A')}")
+                                note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
+                                note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
+                                note.set_colors(stroke=color, fill=color)
+                                note.update()
+                            
+                            # 🔥 CRITICAL: CLAIM SELURUH REFERENCE ENTRY untuk fallback juga!
+                            ref_num = result.get('reference_number')
+                            if ref_num and ref_num in markers_by_number:
+                                marker_info = markers_by_number[ref_num]
+                                marker_y = marker_info['y']
+                                next_marker_y = marker_info.get('next_y')
+                                
+                                for wi, w in enumerate(words_on_page):
+                                    word_y = w[1]
+                                    if word_y >= marker_y - 5:
+                                        if next_marker_y is None or word_y < next_marker_y - 5:
+                                            used_word_indices.add(wi)
+                            
+                            for wi in unique_wi:
+                                used_word_indices.add(wi)
                         except Exception as e:
-                             logger.warning(f"Gagal highlight tahun ref {result['reference_number']}: {e}")
-                        
-                        break # Tahun untuk referensi INI sudah ketemu, lanjut referensi berikutnya
+                            logger.warning(f"Fallback highlight gagal untuk ref {result['reference_number']}: {e}")
 
-        # Finalisasi PDF
+# --- BAGIAN 4: HIGHLIGHT TAHUN OUTDATED ---
+            top_level_year = validation_results.get('year_range')
+            current_year = datetime.now().year
+            min_year_threshold = int(top_level_year) if top_level_year else 5
+            min_year = current_year - min_year_threshold
+            year_pattern = re.compile(r'\b(19\d{2}|20\d{2})\b')
+
+            y_start_threshold = 0
+            if current_page_heading_rects:
+                try:
+                    heading_full = fitz.Rect(current_page_heading_rects[0])
+                    for r in current_page_heading_rects[1:]:
+                        heading_full.include_rect(r)
+                    y_start_threshold = heading_full.y1 - 2
+                except Exception:
+                    pass
+
+            def _is_in_reference_region(rect):
+                if current_page_heading_rects and y_start_threshold > 0:
+                    if rect.y0 < y_start_threshold:
+                        return False
+                elif not start_annotating:
+                    return False
+                return True
+
+            def _is_year_in_quotes(word_idx):
+                """
+                Deteksi ketat: anggap 'di dalam kutip' HANYA bila pada baris yang sama
+                terdapat tanda kutip ganda pembuka dan penutup, dan posisi tahun berada di antaranya.
+                - Hindari menganggap apostrof (') sebagai kutip (banyak muncul di nama O'Connor).
+                - Tambahkan dukungan glyph PDF yang sering muncul sebagai hasil decoding: ô (open), ö (close).
+                """
+                try:
+                    # Hanya double-quotes untuk mencegah false positive dari apostrof pada nama
+                    quote_open_chars = {'"', '“', 'ô'}   # ASCII, curly open, and PDF-decoded open
+                    quote_close_chars = {'"', '”', 'ö'}  # ASCII, curly close, and PDF-decoded close
+
+                    key = (words_on_page[word_idx][5], words_on_page[word_idx][6])
+                    line = by_line.get(key)
+                    if not line:
+                        return False
+                    try:
+                        rel_idx = line['word_indices'].index(word_idx)
+                    except ValueError:
+                        return False
+
+                    # Helper closures
+                    def line_open_before(idx, line_words):
+                        # Count opening quotes in earlier tokens OR within current token (approximation)
+                        current_token = str(words_on_page[word_idx][4])
+                        if any(ch in current_token for ch in quote_open_chars):
+                            return True
+                        for i, t in enumerate(line_words):
+                            if i >= idx: break
+                            if any(ch in t for ch in quote_open_chars):
+                                return True
+                        return False
+
+                    def line_close_after(idx, line_words):
+                        # Count closing quotes in later tokens OR within current token (approximation)
+                        current_token = str(words_on_page[word_idx][4])
+                        if any(ch in current_token for ch in quote_close_chars):
+                            return True
+                        for i in range(idx + 1, len(line_words)):
+                            if any(ch in line_words[i] for ch in quote_close_chars):
+                                return True
+                        return False
+
+                    def line_has_any(chars, line_words):
+                        return any(any(ch in t for ch in chars) for t in line_words)
+
+                    # Special: if the year appears parenthesized like (2011), treat as NOT in quotes
+                    try:
+                        cur_txt = str(words_on_page[word_idx][4])
+                        prev_txt = str(words_on_page[line['word_indices'][rel_idx-1]][4]) if rel_idx-1 >= 0 else ''
+                        next_txt = str(words_on_page[line['word_indices'][rel_idx+1]][4]) if rel_idx+1 < len(line['word_indices']) else ''
+                        if '(' in cur_txt or ')' in cur_txt or prev_txt.endswith('(') or next_txt.startswith(')'):
+                            return False
+                    except Exception:
+                        pass
+
+                    # 1) Same-line strict
+                    same_line = line_open_before(rel_idx, line['words']) and line_close_after(rel_idx, line['words'])
+                    if same_line:
+                        return True
+
+                    # 2) Multi-line (strict double-quote only within same block):
+                    bno, lno = words_on_page[word_idx][5], words_on_page[word_idx][6]
+                    prev_line = by_line.get((bno, lno - 1))
+                    next_line = by_line.get((bno, lno + 1))
+
+                    # Case A: prev has open, current has close after year
+                    if prev_line and line_close_after(rel_idx, line['words']):
+                        if line_has_any(quote_open_chars, prev_line['words']) and not line_has_any(quote_close_chars, prev_line['words']):
+                            return True
+
+                        # Extra heuristic: author-year line then title (close quote in current line)
+                        try:
+                            prev_text = ' '.join(prev_line['words'])
+                            if re.search(r"\((19|20)\d{2}\)\.?\s*$", prev_text):
+                                return True
+                        except Exception:
+                            pass
+
+                    # Case B: current has open before year, next has close
+                    if next_line and line_open_before(rel_idx, line['words']):
+                        if line_has_any(quote_close_chars, next_line['words']) and not line_has_any(quote_open_chars, next_line['words']):
+                            return True
+
+                    # 3) Title-like heuristic: detect year ranges or closing quote near the token
+                    try:
+                        line_text = ' '.join(line['words'])
+                        if re.search(r'(19|20)\d{2}\s*[-–]\s*(19|20)\d{2}', line_text):
+                            return True
+                        # if the same token or the next token has a closing quote glyph, likely end of title
+                        if any(ch in str(words_on_page[word_idx][4]) for ch in quote_close_chars):
+                            return True
+                        for offset in range(1, 4):
+                            if rel_idx + offset < len(line['word_indices']):
+                                nxt = str(words_on_page[line['word_indices'][rel_idx+offset]][4])
+                                if any(ch in nxt for ch in quote_close_chars):
+                                    return True
+                    except Exception:
+                        pass
+
+                    return False
+                except Exception:
+                    return False
+
+            # SINGLE SCAN dengan duplicate tracking yang BENAR
+            highlighted_years = set()
+            
+            for wi, w in enumerate(words_on_page):
+                
+                word_text = str(w[4])
+                for match in year_pattern.finditer(word_text):
+                    year_str = match.group(0)
+                    year_int = int(year_str)
+                    
+                    if year_int >= min_year:
+                        continue
+                    if _is_year_in_quotes(wi):
+                        continue
+                    
+                    word_rect = fitz.Rect(w[:4])
+                    
+                    if not _is_in_reference_region(word_rect):
+                        continue
+                    
+                    try:
+                        current_bno, current_lno = w[5], w[6]
+                        current_key = (current_bno, current_lno)
+                        current_line_info = by_line.get(current_key)
+                        
+                        is_part_of_reference_entry = False
+                        if current_line_info:
+                            current_line_text = ' '.join(current_line_info['words'])
+                            # Cek baris saat ini
+                            if _is_line_a_reference_entry(current_line_text):
+                                is_part_of_reference_entry = True
+                            else:
+                                # Jika baris saat ini gagal, cek baris sebelumnya sebagai fallback
+                                prev_key = (current_bno, current_lno - 1)
+                                prev_line_info = by_line.get(prev_key)
+                                if prev_line_info:
+                                    prev_line_text = ' '.join(prev_line_info['words'])
+                                    if _is_line_a_reference_entry(prev_line_text):
+                                        # Baris sebelumnya adalah awal referensi, jadi baris ini adalah lanjutannya.
+                                        is_part_of_reference_entry = True
+
+                        if not is_part_of_reference_entry:
+                            continue # Bukan bagian dari entri referensi. LEWATI.
+
+                    except Exception:
+                        continue
+                    
+                    # DUPLICATE CHECK yang BENAR
+                    year_key = (year_str, round(word_rect.x0, 1), round(word_rect.y0, 1))
+                    if year_key in highlighted_years:
+                        continue
+                    highlighted_years.add(year_key)
+                    
+                    try:
+                        start_pos = match.start()
+                        end_pos = match.end()
+                        word_len = len(word_text)
+                        
+                        if word_len > 0:
+                            x_start_ratio = start_pos / word_len
+                            x_end_ratio = end_pos / word_len
+                            word_width = word_rect.x1 - word_rect.x0
+                            year_rect = fitz.Rect(
+                                word_rect.x0 + (word_width * x_start_ratio),
+                                word_rect.y0,
+                                word_rect.x0 + (word_width * x_end_ratio),
+                                word_rect.y1
+                            )
+                        else:
+                            year_rect = word_rect
+                        
+                        h = page.add_highlight_annot(year_rect)
+                        h.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
+                        h.update()
+                        
+                        note_text = f"Tahun: {year_str}\\nMinimal: {min_year}\\nStatus: Outdated"
+                        note = page.add_text_annot(
+                            fitz.Point(year_rect.x0, max(0, year_rect.y0 - 15)), 
+                            note_text
+                        )
+                        note.set_info(title="Tahun Outdated")
+                        note.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
+                        note.update()
+                    except Exception as e:
+                        logger.error(f"Error highlighting year: {e}")
+
+                # Finalisasi PDF
         pdf_bytes = pdf.tobytes()
         pdf.close()
         return pdf_bytes, None

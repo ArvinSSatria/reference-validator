@@ -908,15 +908,9 @@ def _annotate_multi_column_page(
                 last_matched_word_index = expanded_tokens[i + matched_window_len - 1]['word_index']
                 last_word_of_match_text = words_on_page[last_matched_word_index][4]
                 
-                ref_num = result.get('reference_number')
-                if ref_num and ref_num in markers_by_number:
-                    marker_info = markers_by_number[ref_num]
-                    marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
-                    for wi, w in enumerate(words_on_page):
-                        word_y = w[1]
-                        if word_y >= marker_y - 5:
-                            if next_marker_y is None or word_y < next_marker_y - 5:
-                                used_word_indices.add(wi)
+                # PERBAIKAN: Hapus marker-based pre-marking yang menyebabkan matching window di-skip
+                # Marking ini terlalu agresif dan akan mark semua kata dalam region referensi
+                # yang menyebabkan matching selanjutnya gagal karena dianggap "already used"
                 
                 next_word_text = ""
                 if last_matched_word_index + 1 < len(words_on_page):
@@ -1277,46 +1271,15 @@ def _annotate_single_column_page(
                 return True
             wi = match_word_indices[0]
             bno, lno = words_on_page[wi][5], words_on_page[wi][6]
-            
-            # HANYA cek baris SAAT INI, bukan neighbor lines
-            key = (bno, lno)
-            if key not in by_line:
-                return False
-            
-            current_line_text = ' '.join(by_line[key]['words'])
+            neighbors = []
+            for dl in (-1, 0, 1):
+                key = (bno, lno + dl)
+                if key in by_line: 
+                    neighbors.append(' '.join(by_line[key]['words']))
+            joined = '\n'.join(neighbors)
             quote_chars = ['"', '"', '"', ''', ''', "'"]
-            
-            # Hitung quotes hanya di baris saat ini
-            quote_count = sum(current_line_text.count(ch) for ch in quote_chars)
-            
-            # Return True HANYA jika ada opening DAN closing quote di baris yang SAMA
-            # dan match berada di ANTARA keduanya
-            if quote_count >= 2:
-                # Cari posisi opening dan closing quotes
-                first_quote_pos = -1
-                last_quote_pos = -1
-                for i, char in enumerate(current_line_text):
-                    if char in quote_chars:
-                        if first_quote_pos == -1:
-                            first_quote_pos = i
-                        last_quote_pos = i
-                
-                # Cek posisi kata match relatif terhadap quotes
-                if first_quote_pos != -1 and last_quote_pos != -1 and first_quote_pos != last_quote_pos:
-                    try:
-                        rel_indices = [by_line[key]['word_indices'].index(idx) for idx in match_word_indices if idx in by_line[key]['word_indices']]
-                        if rel_indices:
-                            # Estimasi posisi kata dalam string
-                            words = by_line[key]['words']
-                            match_start_word_idx = min(rel_indices)
-                            chars_before_match = sum(len(w) + 1 for w in words[:match_start_word_idx])
-                            
-                            # Return True hanya jika match berada ANTARA quotes
-                            return first_quote_pos < chars_before_match < last_quote_pos
-                    except (ValueError, KeyError):
-                        pass
-            
-            return False
+            total_quotes = sum(joined.count(ch) for ch in quote_chars)
+            return total_quotes >= 2 and any(ch in neighbors[0] for ch in quote_chars)
         except Exception: 
             return False
 
@@ -1430,23 +1393,15 @@ def _annotate_single_column_page(
                 last_matched_word_index = expanded_tokens[i + matched_window_len - 1]['word_index']
                 last_word_of_match_text = words_on_page[last_matched_word_index][4]
                 
-                # MARKER CODE DIHAPUS - Menyebabkan premature marking yang skip matching window berikutnya
-                # ref_num = result.get('reference_number')
-                # if ref_num and ref_num in markers_by_number:
-                #     marker_info = markers_by_number[ref_num]
-                #     marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
-                #     for wi, w in enumerate(words_on_page):
-                #         word_y = w[1]
-                #         if word_y >= marker_y - 5:
-                #             if next_marker_y is None or word_y < next_marker_y - 5:
-                #                 used_word_indices.add(wi)
+                # PERBAIKAN: Jangan mark used_word_indices untuk seluruh region referensi di sini
+                # Karena akan menyebabkan matching window selanjutnya di-skip
+                # Marker-based marking seharusnya TIDAK dilakukan sama sekali untuk highlight jurnal
                 
                 next_word_text = ""
                 if last_matched_word_index + 1 < len(words_on_page):
                     next_word_text = words_on_page[last_matched_word_index + 1][4]
                     
                 logger.info(f"   Last matched word: '{last_word_of_match_text}', Next word: '{next_word_text}'")
-
                 
                 if next_word_text.lower() in ['in', 'proceedings', 'conference', 'symposium', 'report', 'book']:
                     logger.warning(f"   ⚠️ SKIP: Next word '{next_word_text}' in stop list")
@@ -1514,17 +1469,15 @@ def _annotate_single_column_page(
                         note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
                         note.set_colors(stroke=color, fill=color)
                         note.update()
-                    # MARKER CODE DIHAPUS - Menyebabkan premature marking di fallback
-                    # ref_num = result.get('reference_number')
-                    # if ref_num and ref_num in markers_by_number:
-                    #     marker_info = markers_by_number[ref_num]
-                    #     marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
-                    #     for wi, w in enumerate(words_on_page):
-                    #         word_y = w[1]
-                    #         if word_y >= marker_y - 5:
-                    #             if next_marker_y is None or word_y < next_marker_y - 5:
-                    #                 used_word_indices.add(wi)
-                    
+                    ref_num = result.get('reference_number')
+                    if ref_num and ref_num in markers_by_number:
+                        marker_info = markers_by_number[ref_num]
+                        marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
+                        for wi, w in enumerate(words_on_page):
+                            word_y = w[1]
+                            if word_y >= marker_y - 5:
+                                if next_marker_y is None or word_y < next_marker_y - 5:
+                                    used_word_indices.add(wi)
                     for wi in unique_wi: used_word_indices.add(wi)
                 except Exception as e:
                     logger.warning(f"Fallback highlight gagal untuk ref {result['reference_number']}: {e}")
@@ -1591,73 +1544,16 @@ def _annotate_single_column_page(
             return True
         return False
 
-    def _is_year_in_doi(word_index: int) -> bool:
-        """Check if year is part of a DOI identifier"""
-        try:
-            # Ambil kata saat ini
-            current_word = str(words_on_page[word_index][4])
-            
-            # Cek apakah kata ini sudah mengandung "doi:" atau dimulai dengan "10."
-            if 'doi:' in current_word.lower() or current_word.startswith('10.'):
-                return True
-            
-            # Cek beberapa kata sebelumnya untuk melihat apakah ada "doi:" atau pattern DOI
-            for offset in range(1, 6):  # Cek hingga 5 kata sebelumnya
-                if word_index - offset < 0:
-                    break
-                prev_word = str(words_on_page[word_index - offset][4]).lower()
-                
-                # Jika ada kata "doi:" dalam 5 kata sebelumnya
-                if 'doi:' in prev_word or 'doi' in prev_word:
-                    return True
-                
-                # Jika ada pattern DOI seperti "10.xxxx/"
-                if re.match(r'10\.\d{4,}', prev_word):
-                    return True
-            
-            return False
-        except Exception:
-            return False
-
-    # Debug: Log semua kata yang mengandung "2019" atau "[16]" untuk troubleshooting
-    for wi, w in enumerate(words_on_page):
-        word_text = str(w[4])
-        bno, lno = w[5], w[6]
-        if '2019' in word_text:
-            logger.info(f"🔍 Word containing '2019': '{word_text}' at word_index={wi}, block={bno}, line={lno}, page_num={page.number}")
-        if '[16]' in word_text:
-            logger.info(f"🔍 Found reference marker '[16]': '{word_text}' at word_index={wi}, block={bno}, line={lno}, page_num={page.number}")
-    
     highlighted_years_per_reference = {}
     for wi, w in enumerate(words_on_page):
         word_text = str(w[4])
         for match in year_pattern.finditer(word_text):
             year_str, year_int = match.group(0), int(match.group(0))
-            
-            # Debug logging untuk year detection
-            is_year_in_quotes = _is_year_in_quotes(wi)
-            is_recent = year_int >= min_year
-            
-            # Log semua tahun yang ditemukan untuk debugging
-            if year_int == 2019:
-                logger.info(f"🔍 FOUND Year {year_str} (word: '{word_text}', recent: {is_recent}, in_quotes: {is_year_in_quotes})")
-            
-            if is_recent:
-                logger.info(f"📅 Year {year_str} SKIP: Recent (>= {min_year})")
-                continue
-            
-            if is_year_in_quotes:
-                logger.info(f"📅 Year {year_str} SKIP: In quotes (word: '{word_text}')")
-                continue
-            
-            # Cek apakah tahun ini bagian dari DOI
-            if _is_year_in_doi(wi):
-                logger.info(f"📅 Year {year_str} SKIP: Part of DOI (word: '{word_text}')")
+            if year_int >= min_year or _is_year_in_quotes(wi): 
                 continue
             
             word_rect = fitz.Rect(w[:4])
             if not _is_in_reference_region(word_rect): 
-                logger.info(f"📅 Year {year_str} SKIP: Not in reference region (y={word_rect.y0:.1f})")
                 continue
             
             try:
@@ -1666,35 +1562,16 @@ def _annotate_single_column_page(
                 is_part_of_reference_entry = False
                 
                 if by_line.get(current_key):
-                    # Cek baris saat ini
                     if _is_line_a_reference_entry(' '.join(by_line[current_key]['words'])): 
                         is_part_of_reference_entry = True
                     else:
-                        # Cek hingga 5 baris sebelumnya dalam block yang sama
-                        for offset in range(1, 6):
-                            prev_key = (current_bno, current_lno - offset)
-                            if by_line.get(prev_key) and _is_line_a_reference_entry(' '.join(by_line[prev_key]['words'])): 
-                                is_part_of_reference_entry = True
-                                break
-                        
-                        # Jika belum ketemu, cek juga block sebelumnya (untuk multi-block references)
-                        if not is_part_of_reference_entry:
-                            for block_offset in range(1, 4):  # Cek 3 block sebelumnya
-                                prev_block_no = current_bno - block_offset
-                                # Cek semua line di block sebelumnya
-                                for line_no in range(10):  # Max 10 lines per block
-                                    prev_key = (prev_block_no, line_no)
-                                    if by_line.get(prev_key) and _is_line_a_reference_entry(' '.join(by_line[prev_key]['words'])):
-                                        is_part_of_reference_entry = True
-                                        break
-                                if is_part_of_reference_entry:
-                                    break
+                        prev_key = (current_bno, current_lno - 1)
+                        if by_line.get(prev_key) and _is_line_a_reference_entry(' '.join(by_line[prev_key]['words'])): 
+                            is_part_of_reference_entry = True
                 
-                if not is_part_of_reference_entry:
-                    logger.info(f"📅 Year {year_str} SKIP: Not part of reference entry (word: '{word_text}')")
+                if not is_part_of_reference_entry: 
                     continue
-            except Exception as e:
-                logger.warning(f"📅 Year {year_str} SKIP: Exception in reference entry check - {e}")
+            except Exception: 
                 continue
             
             try:
@@ -1738,15 +1615,13 @@ def _annotate_single_column_page(
                 h.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
                 h.update()
                 
-                logger.info(f"✅ Year {year_str} HIGHLIGHTED (word: '{word_text}', min_year: {min_year})")
-                
                 note_text = f"Tahun: {year_str}\nMinimal: {min_year}\nStatus: Outdated"
                 note = page.add_text_annot(fitz.Point(year_rect.x0, max(0, year_rect.y0 - 15)), note_text)
                 note.set_info(title="Tahun Outdated")
                 note.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
                 note.update()
             except Exception as e:
-                logger.error(f"❌ Error highlighting tahun {year_str}: {e}")
+                logger.error(f"Error highlighting tahun: {e}")
 
     return start_annotating, added_references_summary, current_page_heading_rects
 
@@ -1770,17 +1645,6 @@ def create_annotated_pdf_from_file(original_filepath, validation_results):
         start_annotating = False
         added_references_summary = False
 
-        # Debug: Scan semua halaman untuk mencari [16] dan 2019
-        logger.info("=" * 50)
-        logger.info("🔍 SCANNING ALL PAGES FOR [16] AND 2019")
-        for page_num, page in enumerate(pdf):
-            page_text = page.get_text()
-            has_16 = '[16]' in page_text
-            has_2019 = '2019' in page_text
-            if has_16 or has_2019:
-                logger.info(f"� Page {page.number} (index {page_num}): has_[16]={has_16}, has_2019={has_2019}")
-        logger.info("=" * 50)
-        
         for page_num, page in enumerate(pdf):
             # --- INI DIA BAGIAN DISPATCHER-NYA ---
             layout_type = _detect_layout(page)

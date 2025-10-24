@@ -1389,7 +1389,16 @@ def _annotate_single_column_page(
         return None, None
 
     # BAGIAN 3: HIGHLIGHT NAMA JURNAL (sama seperti multi-column)
-    for result in detailed_results:
+    # Sort results by journal name length (descending) to prioritize longer names
+    # This prevents shorter journal names from blocking longer ones
+    # Example: "Appl. Soft Comput. J." (4 tokens) before "Soft Comput." (2 tokens)
+    sorted_results = sorted(
+        detailed_results,
+        key=lambda r: len(_clean_scimago_title(r.get('parsed_journal', '')).split()),
+        reverse=True
+    )
+    
+    for result in sorted_results:
         is_journal_or_indexed = (result.get('reference_type') == 'journal') or result.get('is_indexed')
         if not is_journal_or_indexed: continue
         journal_name = result.get('parsed_journal')
@@ -1464,9 +1473,16 @@ def _annotate_single_column_page(
                     
                 has_quotes = _has_any_quotes_nearby(match_indices)
                 after_quote = _appears_after_closing_quote(match_indices)
-                logger.info(f"   Quote checks: has_nearby={has_quotes}, after_closing={after_quote}")
                 
-                if has_quotes and not after_quote:
+                # Check if this is likely a continuation from previous page
+                # (journal name appears near top of page)
+                first_match_word_y = words_on_page[match_indices[0]][1] if match_indices else 999
+                is_near_top_of_page = first_match_word_y < 150  # Within first 150 points from top
+                
+                logger.info(f"   Quote checks: has_nearby={has_quotes}, after_closing={after_quote}, near_top={is_near_top_of_page} (y={first_match_word_y:.1f})")
+                
+                # Skip quote check if journal name is near top of page (likely continuation)
+                if has_quotes and not after_quote and not is_near_top_of_page:
                     logger.warning(f"   ⚠️ SKIP: Has quotes nearby but NOT after closing quote")
                     continue
                 

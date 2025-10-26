@@ -259,9 +259,11 @@ function createReferenceItemHTML(result, index) {
 function updateTabCounts(results) {
     const validCount = results.filter(r => r.status === 'valid').length;
     const invalidCount = results.filter(r => r.status !== 'valid').length;
+    const indexedCount = results.filter(r => r.is_indexed === true).length;
     document.getElementById('allCount').textContent = results.length;
     document.getElementById('validCount').textContent = validCount;
     document.getElementById('invalidCount').textContent = invalidCount;
+    document.getElementById('indexedCount').textContent = indexedCount;
 }
 
 function showTab(event, filter) {
@@ -275,6 +277,7 @@ function filterResults(results, filter) {
     if (filter === 'all') return results;
     if (filter === 'valid') return results.filter(r => r.status === 'valid');
     if (filter === 'invalid') return results.filter(r => r.status !== 'valid');
+    if (filter === 'indexed') return results.filter(r => r.is_indexed === true);
     return results;
 }
 

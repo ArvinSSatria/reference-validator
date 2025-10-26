@@ -1,4 +1,57 @@
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
 .venv/
+venv/
+ENV/
+env/
+
+# Environment Variables & Secrets
 .env
+.env.local
+config_local.py
+
+# Logs
 *.log
+logs/
+reference_validator.log
+output.log
+
+# Cache Files
+*.pkl
+*.cache
+.cache/
+
+# Uploads & Temporary Files
+uploads/
+temp/
+tmp/
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Build & Distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# OS
+Thumbs.db
+desktop.ini

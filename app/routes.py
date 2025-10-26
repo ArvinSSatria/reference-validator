@@ -1,15 +1,14 @@
-# Ganti seluruh file ini di app/routes.py
-
 import os
 import io
-import json # Tambahkan import json
+import json
 from datetime import datetime
 from flask import render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
-import uuid # Untuk nama file unik
-
+import uuid
 from app import app, logger
-from app import services
+from app.services.validation_service import process_validation_request
+from app.services.pdf_service import create_annotated_pdf
+from app.services.docx_service import convert_docx_to_pdf
 
 @app.route('/')
 def index():
@@ -47,11 +46,11 @@ def validate_references_api():
             
             # Buka kembali untuk diproses
             file_stream_for_processing = open(original_filepath, 'rb')
-            result = services.process_validation_request(request, file_stream_for_processing)
+            result = process_validation_request(request, file_stream_for_processing)
             file_stream_for_processing.close()
 
         elif 'text' in request.form and request.form['text'].strip():
-            result = services.process_validation_request(request, None)
+            result = process_validation_request(request, None)
         else:
             return jsonify({"error": "Tidak ada input yang diberikan."}), 400
 
@@ -91,12 +90,12 @@ def download_report_api():
         is_temp_pdf = False
 
         if original_filepath.lower().endswith('.docx'):
-            pdf_path, error = services.convert_docx_to_pdf(original_filepath)
+            pdf_path, error = convert_docx_to_pdf(original_filepath)
             if error: return jsonify({"error": error}), 500
             pdf_to_annotate_path = pdf_path
             is_temp_pdf = True
 
-        annotated_pdf_bytes, error = services.create_annotated_pdf_from_file(
+        annotated_pdf_bytes, error = create_annotated_pdf(
             pdf_to_annotate_path, 
             validation_results
         )
@@ -131,5 +130,3 @@ def _cleanup_session_files():
                 logger.info(f"File sesi lama dihapus: {filepath}")
             except Exception as e:
                 logger.warning(f"Gagal menghapus file sesi lama {filepath}: {e}")
-
-# ... (sisa file: health_check, error handlers tidak berubah) ...

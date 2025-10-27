@@ -143,12 +143,15 @@ def _process_ai_response(batch_results_json, references_list):
         is_overall_valid = False
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
         
+        # UPDATED LOGIC: Prioritas utama adalah terindeks di Scimago
+        # Jika terindeks, langsung VALID (ignore format/tahun)
         if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
+            is_overall_valid = True
             if ai_assessment_valid:
-                is_overall_valid = True
                 final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' terindeks di ScimagoJR dan memenuhi kriteria kualitas)."
             else:
-                final_feedback += f" Status: INVALID (Meskipun sumber terindeks, format/kelengkapan/tahun tidak memenuhi syarat.)"
+                # Tetap VALID meskipun format/tahun tidak sempurna
+                final_feedback += f" Status: VALID (Sumber terindeks di ScimagoJR dengan Quartile {quartile})."
         elif is_indexed:
             final_feedback += f" Status: INVALID (Sumber ditemukan di ScimagoJR, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
         else:

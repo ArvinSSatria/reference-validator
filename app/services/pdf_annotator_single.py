@@ -332,115 +332,143 @@ def annotate_single_column_page(
         if not journal_name or len(journal_name) < 2: continue
         search_tokens = clean_scimago_title(journal_name).split()
         if not search_tokens: continue
-        plen = len(search_tokens)
+        
+        # Try matching with and without stopwords
+        # Sometimes AI returns "Swarm and Evolutionary Computation" (with "and")
+        # But PDF has "Swarm Evol. Comput." which becomes "swarm evolutionary computing" (without "and")
+        stopwords_to_remove = {'of', 'the', 'and', 'for', 'in', 'on', 'a', 'an', 'to'}
+        search_tokens_no_stopwords = [t for t in search_tokens if t not in stopwords_to_remove]
+        
+        # Try both versions
+        search_variants = [search_tokens]
+        if search_tokens_no_stopwords != search_tokens and len(search_tokens_no_stopwords) > 0:
+            search_variants.append(search_tokens_no_stopwords)
+        
         matched = False
         
-        logger.info(f"🔍 Single-column: Mencari jurnal '{journal_name}' dengan {plen} tokens")
+        logger.info(f"🔍 Single-column: Mencari jurnal '{journal_name}' (ref #{result.get('reference_number')}) dengan {len(search_tokens)} tokens")
+        if len(search_variants) > 1:
+            logger.info(f"   Akan mencoba 2 varian: {search_tokens} dan {search_tokens_no_stopwords}")
         
-        for i in range(len(expanded_tokens) - max(plen, 1) + 1):
-            potential_match_tokens = [t['token'] for t in expanded_tokens[i:i+plen]]
-            matched_window_len = None
-            if potential_match_tokens == search_tokens: 
-                matched_window_len = plen
-                logger.info(f"✅ Match found at expanded_token index {i}, window_len={plen}")
-            elif len(search_tokens) == 1:
-                query, combined, tmp_indices = search_tokens[0], "", []
-                max_join = min(len(expanded_tokens) - i, max(2, len(query)))
-                for k in range(max_join):
-                    tok = expanded_tokens[i + k]['token']
-                    combined += tok
-                    tmp_indices.append(expanded_tokens[i + k]['word_index'])
-                    if not query.startswith(combined): break
-                    if combined == query:
-                        potential_match_tokens, matched_window_len = [combined], k + 1
-                        break
-            if matched_window_len is not None:
-                match_indices = [expanded_tokens[i+k]['word_index'] for k in range(matched_window_len)]
-                logger.info(f"   Match word indices: {match_indices}")
-                logger.info(f"   Matched words: {[words_on_page[idx][4] for idx in match_indices if idx < len(words_on_page)]}")
-                
-                if any(idx in used_word_indices for idx in match_indices):
-                    logger.warning(f"   ⚠️ SKIP: Some indices already in used_word_indices")
-                    continue
-                
-                last_matched_word_index = expanded_tokens[i + matched_window_len - 1]['word_index']
-                last_word_of_match_text = words_on_page[last_matched_word_index][4]
-                
-                # MARKER CODE DIHAPUS - Menyebabkan premature marking yang skip matching window berikutnya
-                # ref_num = result.get('reference_number')
-                # if ref_num and ref_num in markers_by_number:
-                #     marker_info = markers_by_number[ref_num]
-                #     marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
-                #     for wi, w in enumerate(words_on_page):
-                #         word_y = w[1]
-                #         if word_y >= marker_y - 5:
-                #             if next_marker_y is None or word_y < next_marker_y - 5:
-                #                 used_word_indices.add(wi)
-                
-                next_word_text = ""
-                if last_matched_word_index + 1 < len(words_on_page):
-                    next_word_text = words_on_page[last_matched_word_index + 1][4]
+        for search_variant in search_variants:
+            variant_len = len(search_variant)
+            
+            for i in range(len(expanded_tokens) - max(variant_len, 1) + 1):
+                potential_match_tokens = [t['token'] for t in expanded_tokens[i:i+variant_len]]
+                matched_window_len = None
+                if potential_match_tokens == search_variant: 
+                    matched_window_len = variant_len
+                    logger.info(f"✅ Match found at expanded_token index {i}, window_len={variant_len}")
+                elif len(search_variant) == 1:
+                    query, combined, tmp_indices = search_variant[0], "", []
+                    max_join = min(len(expanded_tokens) - i, max(2, len(query)))
+                    for k in range(max_join):
+                        tok = expanded_tokens[i + k]['token']
+                        combined += tok
+                        tmp_indices.append(expanded_tokens[i + k]['word_index'])
+                        if not query.startswith(combined): break
+                        if combined == query:
+                            potential_match_tokens, matched_window_len = [combined], k + 1
+                            break
+                if matched_window_len is not None:
+                    match_indices = [expanded_tokens[i+k]['word_index'] for k in range(matched_window_len)]
+                    logger.info(f"   Match word indices: {match_indices}")
+                    logger.info(f"   Matched words: {[words_on_page[idx][4] for idx in match_indices if idx < len(words_on_page)]}")
                     
-                logger.info(f"   Last matched word: '{last_word_of_match_text}', Next word: '{next_word_text}'")
+                    if any(idx in used_word_indices for idx in match_indices):
+                        logger.warning(f"   ⚠️ SKIP: Some indices already in used_word_indices")
+                        continue
+                    
+                    last_matched_word_index = expanded_tokens[i + matched_window_len - 1]['word_index']
+                    last_word_of_match_text = words_on_page[last_matched_word_index][4]
+                    
+                    # MARKER CODE DIHAPUS - Menyebabkan premature marking yang skip matching window berikutnya
+                    # ref_num = result.get('reference_number')
+                    # if ref_num and ref_num in markers_by_number:
+                    #     marker_info = markers_by_number[ref_num]
+                    #     marker_y, next_marker_y = marker_info['y'], marker_info.get('next_y')
+                    #     for wi, w in enumerate(words_on_page):
+                    #         word_y = w[1]
+                    #         if word_y >= marker_y - 5:
+                    #             if next_marker_y is None or word_y < next_marker_y - 5:
+                    #                 used_word_indices.add(wi)
+                    
+                    next_word_text = ""
+                    if last_matched_word_index + 1 < len(words_on_page):
+                        next_word_text = words_on_page[last_matched_word_index + 1][4]
+                        
+                    logger.info(f"   Last matched word: '{last_word_of_match_text}', Next word: '{next_word_text}'")
 
-                
-                if next_word_text.lower() in ['in', 'proceedings', 'conference', 'symposium', 'report', 'book']:
-                    logger.warning(f"   ⚠️ SKIP: Next word '{next_word_text}' in stop list")
-                    continue
-                if last_word_of_match_text.endswith('.') and next_word_text.lower() == 'in':
-                    logger.warning(f"   ⚠️ SKIP: Last word ends with '.' and next is 'in'")
-                    continue
                     
-                in_quotes = _is_within_quotes(match_indices)
-                in_quotes_ext = _is_within_quotes_extended(match_indices)
-                
-                if in_quotes or in_quotes_ext:
-                    logger.warning(f"   ⚠️ SKIP: Within quotes (in_quotes={in_quotes}, extended={in_quotes_ext})")
-                    continue
+                    if next_word_text.lower() in ['in', 'proceedings', 'conference', 'symposium', 'report', 'book']:
+                        logger.warning(f"   ⚠️ SKIP: Next word '{next_word_text}' in stop list")
+                        continue
+                    if last_word_of_match_text.endswith('.') and next_word_text.lower() == 'in':
+                        logger.warning(f"   ⚠️ SKIP: Last word ends with '.' and next is 'in'")
+                        continue
+                        
+                    in_quotes = _is_within_quotes(match_indices)
+                    in_quotes_ext = _is_within_quotes_extended(match_indices)
                     
-                has_quotes = _has_any_quotes_nearby(match_indices)
-                after_quote = _appears_after_closing_quote(match_indices)
-                
-                # Check if this is likely a continuation from previous page
-                # (journal name appears near top of page)
-                first_match_word_y = words_on_page[match_indices[0]][1] if match_indices else 999
-                is_near_top_of_page = first_match_word_y < 150  # Within first 150 points from top
-                
-                logger.info(f"   Quote checks: has_nearby={has_quotes}, after_closing={after_quote}, near_top={is_near_top_of_page} (y={first_match_word_y:.1f})")
-                
-                # Skip quote check if journal name is near top of page (likely continuation)
-                if has_quotes and not after_quote and not is_near_top_of_page:
-                    logger.warning(f"   ⚠️ SKIP: Has quotes nearby but NOT after closing quote")
-                    continue
-                
-                logger.info(f"   ✅ ALL CHECKS PASSED! Highlighting {len(match_indices)} words")
-                used_word_indices.update(match_indices)
-                try:
-                    unique_wi = sorted(list(set(match_indices)))
-                    rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]
-                    first_rect = rects_to_highlight[0] if rects_to_highlight else None
-                    is_indexed = result.get('is_indexed')
-                    color = INDEXED_RGB if is_indexed else PINK_RGB
-                    for r in rects_to_highlight:
-                        annot = page.add_highlight_annot(r)
-                        annot.set_colors(stroke=color, fill=color)
-                        annot.update()
-                    if first_rect:
-                        note_text = (f"Jurnal: {journal_name}\n"
-                                     f"Tipe: {result.get('reference_type','N/A')}\n"
-                                     f"Kuartil: {result.get('quartile','N/A')}\n"
-                                     f"Link: {result.get('scimago_link','N/A')}")
-                        note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
-                        note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
-                        note.set_colors(stroke=color, fill=color)
-                        note.update()
-                except Exception as e:
-                    logger.warning(f"Gagal highlight jurnal ref {result['reference_number']}: {e}")
-                matched = True
-                break
+                    if in_quotes or in_quotes_ext:
+                        logger.warning(f"   ⚠️ SKIP: Within quotes (in_quotes={in_quotes}, extended={in_quotes_ext})")
+                        continue
+                        
+                    has_quotes = _has_any_quotes_nearby(match_indices)
+                    after_quote = _appears_after_closing_quote(match_indices)
+                    
+                    # Check if this is likely a continuation from previous page
+                    # (journal name appears near top of page)
+                    first_match_word_y = words_on_page[match_indices[0]][1] if match_indices else 999
+                    is_near_top_of_page = first_match_word_y < 150  # Within first 150 points from top
+                    
+                    logger.info(f"   Quote checks: has_nearby={has_quotes}, after_closing={after_quote}, near_top={is_near_top_of_page} (y={first_match_word_y:.1f})")
+                    
+                    # PERBAIKAN: Relaksasi filter quotes
+                    # Nama jurnal di daftar referensi sering ada di antara quotes artikel
+                    # Jadi kita HANYA skip jika benar-benar DALAM quotes (in_quotes atau in_quotes_ext)
+                    # TIDAK skip hanya karena has_quotes (quotes nearby saja)
+                    # Original code:
+                    # if has_quotes and not after_quote and not is_near_top_of_page:
+                    #     logger.warning(f"   ⚠️ SKIP: Has quotes nearby but NOT after closing quote")
+                    #     continue
+                    
+                    # Filter quotes sudah dilakukan di atas (in_quotes/in_quotes_ext check)
+                    # Jadi kita tidak perlu skip lagi berdasarkan has_quotes
+                    
+                    logger.info(f"   ✅ ALL CHECKS PASSED! Highlighting {len(match_indices)} words")
+                    used_word_indices.update(match_indices)
+                    try:
+                        unique_wi = sorted(list(set(match_indices)))
+                        rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]
+                        first_rect = rects_to_highlight[0] if rects_to_highlight else None
+                        is_indexed = result.get('is_indexed')
+                        color = INDEXED_RGB if is_indexed else PINK_RGB
+                        for r in rects_to_highlight:
+                            annot = page.add_highlight_annot(r)
+                            annot.set_colors(stroke=color, fill=color)
+                            annot.update()
+                        if first_rect:
+                            note_text = (f"Jurnal: {journal_name}\n"
+                                         f"Tipe: {result.get('reference_type','N/A')}\n"
+                                         f"Kuartil: {result.get('quartile','N/A')}\n"
+                                         f"Link: {result.get('scimago_link','N/A')}")
+                            note = page.add_text_annot(fitz.Point(first_rect.x0, max(0, first_rect.y0 - 15)), note_text)
+                            note.set_info(title="Info Jurnal" if not is_indexed else "Terindeks Scimago")
+                            note.set_colors(stroke=color, fill=color)
+                            note.update()
+                    except Exception as e:
+                        logger.warning(f"Gagal highlight jurnal ref {result['reference_number']}: {e}")
+                    matched = True
+                    break  # Break from inner loop (position i)
+            if matched:
+                break  # Break from search_variant loop
+        
         if not matched:
+            logger.warning(f"   ❌ NO MATCH: Jurnal '{journal_name}' tidak ditemukan di halaman {page_num + 1}")
             cand_indices, first_rect = _fallback_highlight_journal_after_quote(search_tokens)
             if cand_indices:
+                logger.info(f"   🔄 FALLBACK: Found via quote detection, highlighting {len(cand_indices)} words")
                 try:
                     unique_wi = sorted(list(set(cand_indices)))
                     rects_to_highlight = [fitz.Rect(words_on_page[wi][:4]) for wi in unique_wi]

@@ -1,5 +1,5 @@
 let currentResults = [];
-let currentFilter = 'all';
+let currentFilter = 'indexed';
 
 const form = document.getElementById('referenceForm');
 const fileInput = document.getElementById('fileInput');
@@ -74,6 +74,9 @@ async function validateReferences() {
     showLoading();
     hideError();
     hideResults();
+    
+    // Start progress animation
+    startProgressAnimation();
 
     try {
         const response = await fetch('/api/validate', {
@@ -85,8 +88,15 @@ async function validateReferences() {
 
         if (data.error) {
             showError(data.error);
+            resetProgress();
             return;
         }
+
+        // Complete progress
+        completeProgress();
+        
+        // Small delay to show completion
+        await new Promise(resolve => setTimeout(resolve, 500));
 
         currentResults = data.detailed_results || [];
         displayResults(data);
@@ -94,9 +104,84 @@ async function validateReferences() {
     } catch (error) {
         console.error('Error:', error);
         showError('Terjadi kesalahan dalam menghubungi server. Silakan coba lagi.');
+        resetProgress();
     } finally {
         hideLoading();
     }
+}
+
+function startProgressAnimation() {
+    const steps = [
+        { id: 'step1', duration: 2000, progress: 25, label: 'Mengekstrak referensi dari dokumen...' },
+        { id: 'step2', duration: 3000, progress: 50, label: 'Memisahkan entri referensi dengan AI...' },
+        { id: 'step3', duration: 5000, progress: 75, label: 'Menganalisis setiap referensi...' },
+        { id: 'step4', duration: 2000, progress: 95, label: 'Memvalidasi dengan database ScimagoJR...' }
+    ];
+    
+    let currentStep = 0;
+    
+    function animateStep() {
+        if (currentStep >= steps.length) return;
+        
+        const step = steps[currentStep];
+        const stepElement = document.getElementById(step.id);
+        const progressFill = document.getElementById('progressFill');
+        const progressPercentage = document.getElementById('progressPercentage');
+        const progressInfo = document.getElementById('progressInfo');
+        
+        // Mark current step as active
+        stepElement.classList.add('active');
+        
+        // Update progress bar
+        progressFill.style.width = step.progress + '%';
+        progressPercentage.textContent = step.progress + '%';
+        progressInfo.textContent = step.label;
+        
+        // After duration, mark as completed and move to next
+        setTimeout(() => {
+            stepElement.classList.remove('active');
+            stepElement.classList.add('completed');
+            currentStep++;
+            animateStep();
+        }, step.duration);
+    }
+    
+    animateStep();
+}
+
+function completeProgress() {
+    const progressFill = document.getElementById('progressFill');
+    const progressPercentage = document.getElementById('progressPercentage');
+    const progressInfo = document.getElementById('progressInfo');
+    
+    // Complete all steps
+    ['step1', 'step2', 'step3', 'step4'].forEach(id => {
+        const element = document.getElementById(id);
+        element.classList.remove('active');
+        element.classList.add('completed');
+    });
+    
+    // Set to 100%
+    progressFill.style.width = '100%';
+    progressPercentage.textContent = '100%';
+    progressInfo.textContent = 'Proses selesai! Menampilkan hasil...';
+}
+
+function resetProgress() {
+    const progressFill = document.getElementById('progressFill');
+    const progressPercentage = document.getElementById('progressPercentage');
+    const progressInfo = document.getElementById('progressInfo');
+    
+    // Reset all steps
+    ['step1', 'step2', 'step3', 'step4'].forEach(id => {
+        const element = document.getElementById(id);
+        element.classList.remove('active', 'completed');
+    });
+    
+    // Reset progress bar
+    progressFill.style.width = '0%';
+    progressPercentage.textContent = '0%';
+    progressInfo.textContent = '';
 }
 
 function showLoading() {
@@ -260,7 +345,6 @@ function updateTabCounts(results) {
     const validCount = results.filter(r => r.status === 'valid').length;
     const invalidCount = results.filter(r => r.status !== 'valid').length;
     const indexedCount = results.filter(r => r.is_indexed === true).length;
-    document.getElementById('allCount').textContent = results.length;
     document.getElementById('validCount').textContent = validCount;
     document.getElementById('invalidCount').textContent = invalidCount;
     document.getElementById('indexedCount').textContent = indexedCount;
@@ -274,7 +358,6 @@ function showTab(event, filter) {
 }
 
 function filterResults(results, filter) {
-    if (filter === 'all') return results;
     if (filter === 'valid') return results.filter(r => r.status === 'valid');
     if (filter === 'invalid') return results.filter(r => r.status !== 'valid');
     if (filter === 'indexed') return results.filter(r => r.is_indexed === true);

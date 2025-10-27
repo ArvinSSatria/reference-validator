@@ -97,6 +97,35 @@ Contoh:
             <div class="spinner"></div>
             <h3>Memproses Referensi...</h3>
             <p>Sistem sedang menganalisis referensi menggunakan teknologi NLP. Mohon tunggu sebentar.</p>
+            
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-percentage" id="progressPercentage">0%</div>
+            </div>
+            
+            <!-- Progress Steps -->
+            <div class="progress-steps">
+                <div class="progress-step" id="step1">
+                    <i class="fas fa-file-import"></i>
+                    <span>Ekstraksi Referensi</span>
+                </div>
+                <div class="progress-step" id="step2">
+                    <i class="fas fa-cut"></i>
+                    <span>Pemisahan Entri</span>
+                </div>
+                <div class="progress-step" id="step3">
+                    <i class="fas fa-brain"></i>
+                    <span>Analisis AI</span>
+                </div>
+                <div class="progress-step" id="step4">
+                    <i class="fas fa-database"></i>
+                    <span>Validasi Data</span>
+                </div>
+            </div>
+            
             <div id="progressInfo"></div>
         </div>
 
@@ -125,11 +154,8 @@ Contoh:
 
                 <div class="results-toolbar">
                     <div class="tab-buttons">
-                        <button class="tab-button active" onclick="showTab(event, 'all')">
-                            <i class="fas fa-list"></i> Semua (<span id="allCount">0</span>)
-                        </button>
-                        <button class="tab-button" onclick="showTab(event, 'indexed')">
-                            <i class="fas fa-star"></i> Terindeks SJR (<span id="indexedCount">0</span>)
+                        <button class="tab-button active" onclick="showTab(event, 'indexed')">
+                            <i class="fas fa-star"></i> ScimagoJR (<span id="indexedCount">0</span>)
                         </button>
                         <button class="tab-button" onclick="showTab(event, 'valid')">
                             <i class="fas fa-check"></i> Valid (<span id="validCount">0</span>)

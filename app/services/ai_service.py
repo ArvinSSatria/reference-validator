@@ -176,7 +176,7 @@ Kembalikan sebagai ARRAY JSON TUNGGAL dengan struktur berikut:
     "parsed_authors": ["Penulis 1"],
     "parsed_year": <int>,
     "parsed_title": "<string>",
-    "parsed_journal": "<string>",
+    "parsed_journal": "<HANYA NAMA JURNAL/SUMBER, TANPA volume/issue/halaman>",
     "reference_type": "journal/book/conference/website/other",
     "is_format_correct": <boolean>,
     "is_complete": <boolean>,
@@ -185,4 +185,10 @@ Kembalikan sebagai ARRAY JSON TUNGGAL dengan struktur berikut:
     "missing_elements": ["elemen_hilang"],
     "feedback": "<Saran perbaikan dalam BAHASA INDONESIA, atau 'OK' jika sempurna>"
 }}
+
+PENTING: 
+- `parsed_journal` harus HANYA nama jurnal/sumber, misalnya "Nature", "PLOS ONE", "Journal of Machine Learning Research"
+- JANGAN sertakan volume, issue, halaman, atau DOI dalam `parsed_journal`
+- Contoh BENAR: "parsed_journal": "International Journal of Electronic Commerce"
+- Contoh SALAH: "parsed_journal": "International Journal of Electronic Commerce, Vol. 2(8), 8-22."
 """

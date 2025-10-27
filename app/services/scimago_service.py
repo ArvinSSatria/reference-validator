@@ -33,10 +33,15 @@ COMMON_ABBREVIATIONS = {
     "trans.": "transactions",
     "int.": "international",
     "intl.": "international",
-    "comp.": "computer",
-    "comput.": "computer",
+    "comp.": "computing",
+    "comput.": "computing",  # FIXED: 'computer' → 'computing'
+    "evol.": "evolutionary",  # ADDED: untuk 'Evol. Intell.' dan 'Swarm Evol. Comput.'
+    "intell.": "intelligence",  # ADDED: untuk 'Evol. Intell.'
     "sci.": "science",
     "tech.": "technology",
+    "technol.": "technology",  # ADDED: untuk 'Inf. Softw. Technol.'
+    "softw.": "software",  # ADDED: untuk 'IEEE Trans. Softw. Eng.'
+    "softw": "software",   # ADDED: untuk 'Softw' setelah punctuation removal
     "res.": "research",
     "rev.": "review",
     "lett.": "letters",
@@ -95,7 +100,31 @@ def clean_scimago_title(title):
     s = expanded.lower()
     s = re.sub(r'[^a-z0-9]', ' ', s)
     s = re.sub(r'\s+', ' ', s).strip()
-    return s
+    
+    # Remove common generic suffixes that don't help matching
+    # (e.g., "Applied Soft Computing Journal" → "Applied Soft Computing")
+    generic_suffixes = ['journal', 'proceedings', 'magazine', 'bulletin', 'letters']
+    words = s.split()
+    
+    # Only remove if it's the last word and there are more than 2 words
+    if len(words) > 2 and words[-1] in generic_suffixes:
+        words = words[:-1]
+        s = ' '.join(words)
+    
+    # Normalize word variants to common form (for better matching)
+    # Example: "computing" and "computation" → "computing"
+    word_normalizations = {
+        'computation': 'computing',
+        'computational': 'computing',
+        'computer': 'computing',  # Already handled but ensure consistency
+    }
+    
+    words = s.split()
+    normalized_words = []
+    for word in words:
+        normalized_words.append(word_normalizations.get(word, word))
+    
+    return ' '.join(normalized_words)
 
 
 def load_scimago_data():
@@ -137,6 +166,7 @@ def load_scimago_data():
 
                 journal_info = {
                     'id': source_id,
+                    'title': title,  # ADDED: Store original title
                     'quartile': quartile,
                     'type': source_type
                 }
@@ -174,7 +204,9 @@ def search_journal_in_scimago(journal_name):
         return False, None
 
     cleaned_journal_name = clean_scimago_title(journal_name)
-    expanded_query = expand_abbreviations(cleaned_journal_name)
+    # Note: clean_scimago_title() already calls expand_abbreviations() internally
+    # So we use cleaned_journal_name directly, not expand_abbreviations(cleaned_journal_name)
+    expanded_query = cleaned_journal_name
 
     if expanded_query in SCIMAGO_DATA["by_cleaned_title"]:
         SEARCH_STATS['matches_found'] += 1
@@ -259,6 +291,24 @@ def search_journal_in_scimago(journal_name):
             
             if overlap_ratio < 0.85:
                 continue  # Overlap terlalu rendah
+            
+            # VALIDASI CRITICAL: Cek apakah ada kata penting yang BERBEDA
+            # Mencegah "information" match ke "food" meskipun similarity tinggi
+            stopwords_check = {'of', 'the', 'and', 'for', 'in', 'on', 'a', 'an', 'to'}
+            important_query = query_words - stopwords_check
+            important_db = db_words - stopwords_check
+            
+            # Jika ada kata penting di query yang TIDAK ada di DB, ini BUKAN typo!
+            # Contoh: "Annual Review of Information..." vs "Annual Review of Food..."
+            # "information" tidak ada dalam DB, sehingga ini bukan typo biasa
+            missing_important = important_query - important_db
+            if len(missing_important) > 0:
+                # Ada kata penting yang hilang - hanya accept jika SEMUA kata yang hilang
+                # adalah typo minor (edit distance kecil)
+                # Untuk kasus "information" vs "food", ini akan gagal karena beda total
+                # Hanya accept jika similarity SANGAT tinggi (>0.95) yang berarti pure typo
+                if seq_ratio < 0.95:
+                    continue  # Bukan typo, ada kata yang memang berbeda, skip
 
             try:
                 positions = []

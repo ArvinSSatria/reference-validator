@@ -52,18 +52,18 @@ def process_validation_request(request, saved_file_stream=None):
         )
         
         # Langkah 4: AI Call #2 - Analyze references
-        batch_results_json, error = analyze_references_with_ai(references_list, style, year_range)
+        batch_results_json, detected_style, error = analyze_references_with_ai(references_list, style, year_range)
         if error:
             return {"error": error}
         
         # Langkah 5: Process AI response & match dengan Scimago
-        detailed_results = _process_ai_response(batch_results_json, references_list)
+        detailed_results = _process_ai_response(batch_results_json, references_list, style, detected_style)
         
         # Langkah 6: Generate summary & recommendations
         summary, recommendations = _generate_summary_and_recommendations(
             detailed_results,
             count_validation,
-            style,
+            detected_style,  # Gunakan detected_style instead of style
             journal_percent_threshold
         )
 
@@ -105,7 +105,16 @@ def _get_references_from_request(request, file_stream=None):
     return None, "Tidak ada input yang diberikan."
 
 
-def _process_ai_response(batch_results_json, references_list):
+def _process_ai_response(batch_results_json, references_list, original_style, detected_style):
+    """
+    Process AI response and match dengan Scimago database.
+    
+    Args:
+        batch_results_json: JSON response dari AI
+        references_list: List referensi asli
+        original_style: Style yang dipilih pengguna (bisa "Auto")
+        detected_style: Style yang terdeteksi oleh AI
+    """
     detailed_results = []
     
     ACCEPTED_SCIMAGO_TYPES = {'journal', 'book series', 'trade journal', 'conference and proceeding'}
@@ -148,6 +157,10 @@ def _process_ai_response(batch_results_json, references_list):
         
         is_overall_valid = False
         final_feedback = result_json.get('feedback', 'Analisis AI selesai.')
+        
+        # Tambahkan catatan jika menggunakan mode Auto
+        if original_style == 'Auto':
+            final_feedback += f"\nMengikuti gaya sitasi yang terdeteksi: {detected_style} (Auto)"
         
         # UPDATED LOGIC: Prioritas utama adalah terindeks di Scimago
         # Jika terindeks, langsung VALID (ignore format/tahun)

@@ -712,6 +712,10 @@ select:focus {
     opacity: 0.5;
 }
 
+#progressInfo {
+    margin-top: 1rem;
+}
+
 .progress-step i {
     font-size: 2rem;
     display: block;

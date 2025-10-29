@@ -173,6 +173,7 @@ INSTRUKSI OUTPUT:
 Kembalikan sebagai ARRAY JSON TUNGGAL dengan struktur berikut:
 {{
     "reference_number": <int>,
+    "full_reference": "<TEKS REFERENSI LENGKAP SEPERTI YANG DIBERIKAN>",
     "parsed_authors": ["Penulis 1"],
     "parsed_year": <int>,
     "parsed_title": "<string>",
@@ -187,6 +188,7 @@ Kembalikan sebagai ARRAY JSON TUNGGAL dengan struktur berikut:
 }}
 
 PENTING: 
+- `full_reference` harus berisi TEKS REFERENSI ASLI LENGKAP persis seperti yang diberikan (untuk keperluan highlighting di PDF)
 - `parsed_journal` harus HANYA nama jurnal/sumber, misalnya "Nature", "PLOS ONE", "Journal of Machine Learning Research"
 - JANGAN sertakan volume, issue, halaman, atau DOI dalam `parsed_journal`
 - Contoh BENAR: "parsed_journal": "International Journal of Electronic Commerce"

@@ -34,14 +34,18 @@ COMMON_ABBREVIATIONS = {
     "int.": "international",
     "intl.": "international",
     "comp.": "computing",
-    "comput.": "computing",  # FIXED: 'computer' → 'computing'
-    "evol.": "evolutionary",  # ADDED: untuk 'Evol. Intell.' dan 'Swarm Evol. Comput.'
-    "intell.": "intelligence",  # ADDED: untuk 'Evol. Intell.'
+    "comput.": "computing",
+    "computer": "computing",  # ADDED: normalize 'computer' to 'computing'
+    "computation": "computing",  # ADDED: normalize variants
+    "computational": "computing",  # ADDED: normalize variants
+    "evol.": "evolutionary",
+    "intell.": "intelligence",
     "sci.": "science",
+    "sciences": "science",  # ADDED: normalize plural to singular
     "tech.": "technology",
-    "technol.": "technology",  # ADDED: untuk 'Inf. Softw. Technol.'
-    "softw.": "software",  # ADDED: untuk 'IEEE Trans. Softw. Eng.'
-    "softw": "software",   # ADDED: untuk 'Softw' setelah punctuation removal
+    "technol.": "technology",
+    "softw.": "software",
+    "softw": "software",
     "res.": "research",
     "rev.": "review",
     "lett.": "letters",
@@ -54,7 +58,16 @@ COMMON_ABBREVIATIONS = {
     "assoc.": "association",
     "appl.": "applied",
     "theor.": "theoretical",
-    "pract.": "practical",
+    "pract.": "practice",  # ADDED: Missing abbreviation
+    "practice": "practice",  # ADDED: normalize
+    "exp.": "experience",  # ADDED: Missing abbreviation
+    "experience": "experience",  # ADDED: normalize
+    "inf.": "information",  # ADDED: Missing abbreviation
+    "information": "information",  # ADDED: normalize
+    "syst.": "systems",  # ADDED: Missing abbreviation
+    "system": "systems",  # ADDED: normalize singular to plural
+    "mach.": "machine",  # ADDED: Missing abbreviation
+    "learn.": "learning",  # ADDED: for 'Mach. Learn.'
     "eng.": "engineering",
     "med.": "medicine",
     "phys.": "physics",
@@ -98,6 +111,10 @@ def clean_scimago_title(title):
     expanded = expand_abbreviations(title)
     
     s = expanded.lower()
+    
+    # Remove parenthetical content like "(Ny.)" before cleaning
+    s = re.sub(r'\([^)]*\)', '', s)
+    
     s = re.sub(r'[^a-z0-9]', ' ', s)
     s = re.sub(r'\s+', ' ', s).strip()
     
@@ -112,11 +129,12 @@ def clean_scimago_title(title):
         s = ' '.join(words)
     
     # Normalize word variants to common form (for better matching)
-    # Example: "computing" and "computation" → "computing"
     word_normalizations = {
         'computation': 'computing',
         'computational': 'computing',
-        'computer': 'computing',  # Already handled but ensure consistency
+        'computer': 'computing',
+        'informatics': 'information',
+        'informatic': 'information',
     }
     
     words = s.split()
@@ -228,11 +246,31 @@ def search_journal_in_scimago(journal_name):
         db_words_list = title_db.split()
         important_db_words = db_words - stopwords
 
+        # VALIDASI CRITICAL #1: Semua kata penting dari query HARUS ada di database
         if not important_query_words.issubset(important_db_words):
             continue  # Skip - ada kata yang tidak match
 
+        # VALIDASI CRITICAL #2: Query tidak boleh lebih panjang dari database title
         if len(query_words) > len(db_words):
             continue
+        
+        # VALIDASI CRITICAL #3: Minimal 70% kata penting dari DATABASE harus ada di QUERY
+        # Ini mencegah "World Health Organization" match ke "Bulletin of the World Health Organization"
+        # Karena "Bulletin" tidak ada di query
+        important_overlap = len(important_query_words & important_db_words)
+        important_db_count = len(important_db_words)
+        
+        if important_db_count > 0:
+            # Hitung berapa persen kata penting DB yang ter-cover oleh query
+            coverage_ratio = important_overlap / important_db_count
+            
+            # Jika query jauh lebih pendek dari DB title, butuh coverage tinggi
+            if len(important_query_words) < len(important_db_words):
+                # Contoh: query "World Health Organization" (3 kata)
+                # DB title "Bulletin World Health Organization" (4 kata penting)
+                # Coverage = 3/4 = 75% → GAGAL jika threshold 80%
+                if coverage_ratio < 0.80:
+                    continue  # Skip - terlalu banyak kata penting DB yang tidak match
         
         try:
             positions = []
@@ -250,15 +288,6 @@ def search_journal_in_scimago(journal_name):
                 
         except (ValueError, IndexError):
             continue
-        
-        if len(query_words) < len(db_words):
-            important_overlap = len(important_query_words & important_db_words)
-            important_db_count = len(important_db_words)
-            
-            if important_db_count > 0:
-                ratio = important_overlap / important_db_count
-                if ratio < 0.70:
-                    continue  # Subset terlalu kecil, skip
         
         # Jika semua validasi passed, ini adalah match yang valid
         SEARCH_STATS['matches_found'] += 1

@@ -3,7 +3,6 @@ import re
 import fitz  # PyMuPDF
 from datetime import datetime
 from app.utils.text_utils import is_likely_reference
-from app.utils.layout_detector import detect_layout
 
 logger = logging.getLogger(__name__)
 
@@ -88,50 +87,46 @@ def create_annotated_pdf(original_filepath, validation_results):
             "PATTENS_BLUE": (210/255.0, 236/255.0, 238/255.0),
             "INDEXED_RGB": (208/255.0, 233/255.0, 222/255.0),
             "PINK_RGB": (251/255.0, 215/255.0, 222/255.0),
-            "YEAR_RGB": (255/255.0, 105/255.0, 97/255.0)
+            "YEAR_RGB": (255/255.0, 105/255.0, 97/255.0),
+            "MISSING_RGB": (255/255.0, 179/255.0, 71/255.0)
         }
+
+        # Extract full text dari PDF untuk mencari references section
+        full_text = ''.join(page.get_text() for page in pdf)
+        
+        # Import annotator baru
+        from app.services.pdf_annotator import find_references_section_in_text, annotate_pdf_page
+        
+        # Cari keyword references section
+        found_line_num, found_keyword = find_references_section_in_text(full_text)
+        
+        if found_line_num == -1:
+            logger.warning("⚠️ Tidak ditemukan bagian referensi, akan mencoba annotate semua halaman")
+            found_keyword = None
+        else:
+            lines = full_text.splitlines()
+            total_lines = len(lines)
+            percentage = (found_line_num / total_lines) * 100 if total_lines > 0 else 0
+            logger.info(f"✅ Menemukan bagian referensi menggunakan keyword: '{found_keyword}'")
+            logger.info(f"   Baris: {found_line_num + 1}/{total_lines} ({percentage:.1f}% dari awal dokumen)")
 
         start_annotating = False
         added_references_summary = False
-
-        # Debug: Scan semua halaman untuk mencari [16] dan 2019
-        logger.info("=" * 50)
-        logger.info("🔍 SCANNING ALL PAGES FOR DEBUGGING")
-        for page_num, page in enumerate(pdf):
-            page_text = page.get_text()
-            has_16 = '[16]' in page_text
-            has_2019 = '2019' in page_text
-            if has_16 or has_2019:
-                logger.info(f"📄 Page {page.number} (index {page_num}): has_[16]={has_16}, has_2019={has_2019}")
-        logger.info("=" * 50)
-        
-        # Import annotation functions
-        from app.services.pdf_annotator_multi import annotate_multi_column_page
-        from app.services.pdf_annotator_single import annotate_single_column_page
         
         for page_num, page in enumerate(pdf):
-            # Deteksi layout dan pilih handler yang sesuai
-            layout_type = detect_layout(page)
-
-            if layout_type == 'multi_column':
-                handler_function = annotate_multi_column_page
-            else:  # 'single_column'
-                handler_function = annotate_single_column_page
-
-            # Panggil handler yang terpilih
-            new_start_annotating, new_added_summary, _ = handler_function(
+            # Panggil annotator baru
+            start_annotating, added_references_summary = annotate_pdf_page(
                 page=page,
                 page_num=page_num,
                 detailed_results=detailed_results,
                 validation_results=validation_results,
                 start_annotating=start_annotating,
                 added_references_summary=added_references_summary,
-                colors=colors
+                found_keyword=found_keyword,
+                found_line_num=found_line_num,
+                colors=colors,
+                full_pdf_text=full_text
             )
-            
-            # Perbarui state global dari hasil pemrosesan halaman
-            start_annotating = new_start_annotating
-            added_references_summary = new_added_summary
 
         # Finalisasi PDF
         pdf_bytes = pdf.tobytes()

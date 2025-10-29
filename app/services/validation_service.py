@@ -114,6 +114,9 @@ def _process_ai_response(batch_results_json, references_list):
         ref_num = result_json.get("reference_number", 0)
         ref_text = references_list[ref_num - 1] if 0 < ref_num <= len(references_list) else "Teks tidak ditemukan"
         
+        # Ambil full_reference dari AI response (untuk highlighting), fallback ke reference_list
+        full_ref_text = result_json.get('full_reference', ref_text)
+        
         year_match = re.search(r'(\d{4})', str(result_json.get('parsed_year', '')))
         parsed_year = int(year_match.group(1)) if year_match else None
         overall_score = result_json.get('overall_score', 0)
@@ -125,8 +128,11 @@ def _process_ai_response(batch_results_json, references_list):
         quartile = None
         journal_info = None
         
-        # Search di Scimago database
-        if journal_name:
+        # Search di Scimago database HANYA untuk tipe journal/conference
+        # SKIP untuk website, report, atau organisasi
+        should_check_scimago = journal_name and ref_type in {'journal', 'conference', 'book series'}
+        
+        if should_check_scimago:
             is_indexed, journal_info = search_journal_in_scimago(journal_name)
             if is_indexed and journal_info:
                 scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
@@ -154,12 +160,16 @@ def _process_ai_response(batch_results_json, references_list):
                 final_feedback += f" Status: VALID (Sumber terindeks di ScimagoJR dengan Quartile {quartile})."
         elif is_indexed:
             final_feedback += f" Status: INVALID (Sumber ditemukan di ScimagoJR, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
+        elif ref_type in {'website', 'report'}:
+            # Untuk website/report, tidak perlu cek Scimago
+            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}' dan tidak terindeks di database jurnal ilmiah ScimagoJR 2024)."
         else:
             final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', namun tidak ditemukan di database ScimagoJR 2024)."
 
         detailed_results.append({
             "reference_number": ref_num,
             "reference_text": ref_text,
+            "full_reference": full_ref_text,  # TAMBAHAN: Full reference text untuk highlighting
             "status": "valid" if is_overall_valid else "invalid",
             "reference_type": ref_type,
             "parsed_year": parsed_year,

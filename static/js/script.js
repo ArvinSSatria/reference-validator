@@ -74,6 +74,7 @@ async function validateReferences() {
     showLoading();
     hideError();
     hideResults();
+
     
     // Start progress animation
     startProgressAnimation();
@@ -107,6 +108,7 @@ async function validateReferences() {
         resetProgress();
     } finally {
         hideLoading();
+        resetProgress();
     }
 }
 
@@ -307,8 +309,7 @@ function createReferenceItemHTML(result, index) {
         if (result.quartile && result.quartile !== '-') {
             quartileHTML = `
             <p class="meta-info">
-                <strong>Kuartil:</strong> 
-                <span class="quartile-tag quartile-${result.quartile.toLowerCase()}">${result.quartile}</span>
+                <strong>Kuartil:</strong> ${result.quartile}
             </p>`;
         } else {
             quartileHTML = `

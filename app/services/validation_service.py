@@ -6,6 +6,7 @@ from app.services.ai_service import split_references_with_ai, analyze_references
 from app.services.scimago_service import search_journal_in_scimago
 from app.services.pdf_service import extract_references_from_pdf
 from app.services.docx_service import extract_references_from_docx
+from app.services.bibtex_service import generate_bibtex, generate_correct_format_example
 from app.utils.text_utils import find_references_section
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,75 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
         if original_style == 'Auto':
             final_feedback += f"\nMengikuti gaya sitasi yang terdeteksi: {detected_style} (Auto)"
         
+        # Check kondisi untuk generate format example dan BibTeX
+        is_format_correct = result_json.get('is_format_correct', False)
+        is_complete = result_json.get('is_complete', False)
+        
+        format_example = None
+        bibtex_string = None
+        bibtex_available = False
+        bibtex_partial = False
+        bibtex_warning = None
+        
+        # LOGIC: Generate format example dan BibTeX
+        # 1. Lengkap + Format SALAH → Format example + Full BibTeX
+        # 2. TIDAK Lengkap → Partial BibTeX dengan placeholder MISSING
+        # 3. Lengkap + Format BENAR → Tidak ada BibTeX (sesuai keputusan user)
+        
+        if is_complete and not is_format_correct and original_style != 'Auto':
+            # Kondisi 1: Lengkap tapi format salah → Berikan contoh format yang benar
+            try:
+                # Extract volume, issue, pages dari AI response
+                parsed_volume = result_json.get('parsed_volume')
+                parsed_issue = result_json.get('parsed_issue')
+                parsed_pages = result_json.get('parsed_pages')
+                
+                format_example = generate_correct_format_example(
+                    authors=result_json.get('parsed_authors', []),
+                    year=parsed_year or 2024,
+                    title=result_json.get('parsed_title', 'Article Title'),
+                    journal=journal_name or 'Journal Name',
+                    style=detected_style,
+                    volume=parsed_volume if parsed_volume else '10',
+                    issue=parsed_issue if parsed_issue else '2',
+                    pages=parsed_pages if parsed_pages else '1-10'
+                )
+                final_feedback += f"\nContoh format {detected_style} yang benar: {format_example}"
+            except Exception as e:
+                logger.warning(f"Gagal generate format example: {e}")
+        
+        # Generate BibTeX jika:
+        # - (Lengkap + Format Salah) → Full BibTeX
+        # - (Tidak Lengkap) → Partial BibTeX
+        # TIDAK generate jika: Lengkap + Format Benar
+        
+        should_generate_bibtex = False
+        
+        if is_complete and not is_format_correct:
+            # Lengkap tapi format salah → Full BibTeX
+            should_generate_bibtex = True
+            bibtex_available = True
+            bibtex_partial = False
+        elif not is_complete:
+            # Tidak lengkap → Partial BibTeX dengan warning
+            should_generate_bibtex = True
+            bibtex_available = True
+            bibtex_partial = True
+            missing_str = ", ".join(result_json.get('missing_elements', ['beberapa elemen']))
+            bibtex_warning = f" File .bib tidak lengkap. Elemen yang hilang: {missing_str}. Field dengan 'MISSING' harus diisi manual."
+        
+        if should_generate_bibtex:
+            try:
+                bibtex_string, is_partial_flag = generate_bibtex(
+                    reference_data=result_json,
+                    is_complete=is_complete
+                )
+                bibtex_partial = is_partial_flag
+            except Exception as e:
+                logger.error(f"Error generating BibTeX for ref #{ref_num}: {e}")
+                bibtex_string = None
+                bibtex_available = False
+        
         # UPDATED LOGIC: Prioritas utama adalah terindeks di Scimago
         # Jika terindeks, langsung VALID (ignore format/tahun)
         if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
@@ -197,7 +267,12 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
                 "year_recent": result_json.get('is_year_recent', False),
             },
             "missing_elements": result_json.get('missing_elements', []),
-            "feedback": final_feedback
+            "feedback": final_feedback,
+            "format_example": format_example,  # NEW: Contoh format yang benar
+            "bibtex_available": bibtex_available,  # NEW: Apakah ada BibTeX
+            "bibtex_partial": bibtex_partial,  # NEW: Apakah BibTeX partial
+            "bibtex_warning": bibtex_warning,  # NEW: Warning untuk partial BibTeX
+            "bibtex_string": bibtex_string  # NEW: BibTeX content untuk download
         })
     
     return detailed_results

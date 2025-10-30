@@ -126,23 +126,17 @@ function startProgressAnimation() {
         if (currentStep >= steps.length) return;
         
         const step = steps[currentStep];
-        const stepElement = document.getElementById(step.id);
         const progressFill = document.getElementById('progressFill');
         const progressPercentage = document.getElementById('progressPercentage');
         const progressInfo = document.getElementById('progressInfo');
-        
-        // Mark current step as active
-        stepElement.classList.add('active');
         
         // Update progress bar
         progressFill.style.width = step.progress + '%';
         progressPercentage.textContent = step.progress + '%';
         progressInfo.textContent = step.label;
         
-        // After duration, mark as completed and move to next
+        // After duration, move to next
         setTimeout(() => {
-            stepElement.classList.remove('active');
-            stepElement.classList.add('completed');
             currentStep++;
             animateStep();
         }, step.duration);
@@ -156,13 +150,6 @@ function completeProgress() {
     const progressPercentage = document.getElementById('progressPercentage');
     const progressInfo = document.getElementById('progressInfo');
     
-    // Complete all steps
-    ['step1', 'step2', 'step3', 'step4'].forEach(id => {
-        const element = document.getElementById(id);
-        element.classList.remove('active');
-        element.classList.add('completed');
-    });
-    
     // Set to 100%
     progressFill.style.width = '100%';
     progressPercentage.textContent = '100%';
@@ -173,12 +160,6 @@ function resetProgress() {
     const progressFill = document.getElementById('progressFill');
     const progressPercentage = document.getElementById('progressPercentage');
     const progressInfo = document.getElementById('progressInfo');
-    
-    // Reset all steps
-    ['step1', 'step2', 'step3', 'step4'].forEach(id => {
-        const element = document.getElementById(id);
-        element.classList.remove('active', 'completed');
-    });
     
     // Reset progress bar
     progressFill.style.width = '0%';
@@ -220,7 +201,15 @@ function displayResults(data) {
     resultsSection.style.display = 'block';
     resultsSection.scrollIntoView({ behavior: 'smooth' });
 
-    document.getElementById('downloadBtn').disabled = false;
+    // Enable download button HANYA jika input dari file (bukan text)
+    const downloadBtn = document.getElementById('downloadBtn');
+    if (fileInput.files.length > 0) {
+        downloadBtn.disabled = false;
+        downloadBtn.style.display = 'inline-block';
+    } else {
+        // Untuk text input, sembunyikan tombol download PDF
+        downloadBtn.style.display = 'none';
+    }
 }
 
 function displaySummary(summary) {
@@ -319,6 +308,23 @@ function createReferenceItemHTML(result, index) {
         }
     }
 
+    // BibTeX Download Button
+    let bibtexHTML = '';
+    if (result.bibtex_available) {
+        const linkClass = result.bibtex_partial ? 'bibtex-link partial' : 'bibtex-link';
+        const linkText = result.bibtex_partial ? 'Download .bib (Partial)' : 'Download BibTeX';
+        const warningHTML = result.bibtex_warning ? `<p class="bibtex-warning"><i class="fas fa-exclamation-triangle"></i> ${result.bibtex_warning}</p>` : '';
+        
+        bibtexHTML = `
+            ${warningHTML}
+            <p class="meta-info">
+                <strong>Download:</strong> 
+                <a href="#" class="${linkClass}" onclick="event.preventDefault(); downloadBibTeX(${result.reference_number});">
+                    ${linkText} <i class="fas fa-download"></i>
+                </a>
+            </p>`;
+    }
+
     return `
         <div class="reference-item ${statusClass}">
             <div class="reference-status ${statusClass === 'valid' ? 'status-valid' : 'status-invalid'}">
@@ -336,7 +342,8 @@ function createReferenceItemHTML(result, index) {
             <p class="meta-info"><strong>Jenis Terdeteksi:</strong> ${result.reference_type || 'Tidak terdeteksi'}</p>
             
             ${scimagoLinkHTML}
-            ${quartileHTML} 
+            ${quartileHTML}
+            ${bibtexHTML}
             
             <div class="feedback"><i class="fas fa-comment-alt"></i> ${result.feedback}</div>
         </div>`;
@@ -377,3 +384,8 @@ downloadBtn.addEventListener('click', () => {
     // Cukup buka URL endpoint GET di tab baru
     window.open('/api/download_report', '_blank');
 });
+
+// Function untuk download BibTeX
+function downloadBibTeX(refNumber) {
+    window.open(`/api/download_bibtex/${refNumber}`, '_blank');
+}

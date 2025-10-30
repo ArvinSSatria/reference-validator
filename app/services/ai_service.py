@@ -274,10 +274,11 @@ def _construct_batch_gemini_prompt(references_list, style, year, year_threshold,
         - false hanya untuk non-ilmiah.
         7. **Feedback (Gunakan Template):**
         - Jika SEMPURNA → "VALID"
-        - Jika kurang elemen → "Perlu ditambahkan: [elemen]. Contoh: Perlu ditambahkan: volume dan halaman."
-        - Jika format salah → "Format kurang sesuai {style}. Seharusnya: [contoh format yang benar]"
-        - Jika tahun lama → "Tahun publikasi ({year}) lebih dari {year_range} tahun. Pertimbangkan referensi lebih baru."
+        - Jika kurang elemen → "Perlu ditambahkan: [elemen]."
+        - Jika format salah → "Format kurang sesuai gaya {style}."
+        - Jika tahun lama → "Tahun publikasi ({year}) lebih dari {year_range} tahun yang lalu."
         - JANGAN gunakan kata "INVALID" atau "TIDAK VALID"
+        - JANGAN sertakan contoh format yang benar (sistem akan generate otomatis)
 
         DAFTAR REFERENSI:
         ---
@@ -293,6 +294,9 @@ def _construct_batch_gemini_prompt(references_list, style, year, year_threshold,
             "parsed_year": <int>,
             "parsed_title": "<string>",
             "parsed_journal": "<HANYA NAMA JURNAL/SUMBER, TANPA volume/issue/halaman>",
+            "parsed_volume": "<string atau null jika tidak ada>",
+            "parsed_issue": "<string atau null jika tidak ada>",
+            "parsed_pages": "<string atau null jika tidak ada>",
             "reference_type": "journal/book/conference/website/other",
             "is_format_correct": <boolean>,
             "is_complete": <boolean>,
@@ -306,6 +310,9 @@ def _construct_batch_gemini_prompt(references_list, style, year, year_threshold,
         - `full_reference` harus berisi TEKS REFERENSI ASLI LENGKAP persis seperti yang diberikan (untuk keperluan highlighting di PDF)
         - `parsed_journal` harus HANYA nama jurnal/sumber, misalnya "Nature", "PLOS ONE", "Journal of Machine Learning Research"
         - JANGAN sertakan volume, issue, halaman, atau DOI dalam `parsed_journal`
-        - Contoh BENAR: "parsed_journal": "International Journal of Electronic Commerce"
+        - `parsed_volume`: Extract HANYA angka volume (e.g., "5", "156"), null jika tidak ada
+        - `parsed_issue`: Extract HANYA angka issue/nomor (e.g., "3", "12"), null jika tidak ada
+        - `parsed_pages`: Extract range halaman (e.g., "245-260", "1-15", "e12345"), null jika tidak ada
+        - Contoh BENAR: "parsed_journal": "International Journal of Electronic Commerce", "parsed_volume": "2", "parsed_issue": "8", "parsed_pages": "8-22"
         - Contoh SALAH: "parsed_journal": "International Journal of Electronic Commerce, Vol. 2(8), 8-22."
     """

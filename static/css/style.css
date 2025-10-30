@@ -15,8 +15,6 @@
     --border-radius: 12px;
     --shadow: 0 4px 6px rgba(0,0,0,0.1);
     --gradient: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
-    /* --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%); */
-
 }
 
 body {
@@ -300,16 +298,6 @@ select:focus {
     }
 }
 
-.spinner {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid var(--secondary-color);
-    border-radius: 50%;
-    width: 50px;
-    height: 50px;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 1rem;
-}
-
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
@@ -429,6 +417,50 @@ select:focus {
     font-size: 0.9rem;
     color: #666;
     font-style: italic;
+}
+
+/* BibTeX Download Section */
+.bibtex-section {
+    margin-top: 0.5rem;
+}
+
+.bibtex-warning {
+    font-size: 0.9rem;
+    color: var(--warning-color);
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    background: #fff3cd;
+    border-left: 3px solid var(--warning-color);
+    border-radius: 4px;
+}
+
+.bibtex-link {
+    color: var(--secondary-color);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+
+
+.bibtex-link:hover {
+    color: var(--primary-color);
+    text-decoration: underline;
+}
+
+.bibtex-link.partial {
+    color: var(--warning-color);
+}
+
+.bibtex-link.partial:hover {
+    color: #e67e22;
+}
+
+.bibtex-link i {
+    font-size: 0.85rem;
 }
 
 .recommendations {
@@ -659,7 +691,7 @@ select:focus {
 .progress-fill {
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, var(--secondary-color), var(--success-color));
+    background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
     transition: width 0.5s ease;
     border-radius: 15px;
     position: relative;
@@ -695,91 +727,23 @@ select:focus {
     color: var(--primary-color);
 }
 
-.progress-steps {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 1rem;
-    margin-top: 2rem;
-}
-
-.progress-step {
-    text-align: center;
-    padding: 1rem;
-    background: #f8f9fa;
-    border-radius: var(--border-radius);
-    border: 2px solid #e0e0e0;
-    transition: all 0.3s ease;
-    opacity: 0.5;
-}
-
 #progressInfo {
-    margin-top: 1rem;
-}
-
-.progress-step i {
-    font-size: 2rem;
-    display: block;
-    margin-bottom: 0.5rem;
-    color: #aaa;
-}
-
-.progress-step span {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #666;
-}
-
-.progress-step.active {
-    opacity: 1;
-    border-color: var(--secondary-color);
-    background: #e3f2fd;
-    transform: scale(1.05);
-}
-
-.progress-step.active i {
-    color: var(--secondary-color);
-    animation: pulse 1.5s ease-in-out infinite;
-}
-
-.progress-step.completed {
-    opacity: 1;
-    border-color: var(--success-color);
-    background: #d4edda;
-}
-
-.progress-step.completed i {
-    color: var(--success-color);
-}
-
-@keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
-}
-
-@media (max-width: 768px) {
-    .progress-steps {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .progress-step {
-        padding: 0.75rem 0.5rem;
-    }
-    
-    .progress-step i {
-        font-size: 1.5rem;
-    }
-    
-    .progress-step span {
-        font-size: 0.75rem;
-    }
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 1rem;
+    color: var(--primary-color);
+    font-weight: 500;
 }
 
 /* Scimago Link Styling */
 .scimago-link {
     color: var(--secondary-color);
     text-decoration: none;
-    font-weight: 600;
-    transition: color 0.3s ease;
+    font-size: 0.9rem;
+    transition: color 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
 }
 
 .scimago-link:hover {

@@ -4,6 +4,7 @@ from werkzeug.utils import secure_filename
 from config import Config
 from app.services.ai_service import split_references_with_ai, analyze_references_with_ai
 from app.services.scimago_service import search_journal_in_scimago
+from app.services.scopus_service import search_journal_in_scopus
 from app.services.pdf_service import extract_references_from_pdf
 from app.services.docx_service import extract_references_from_docx
 from app.services.bibtex_service import generate_bibtex, generate_correct_format_example
@@ -107,15 +108,6 @@ def _get_references_from_request(request, file_stream=None):
 
 
 def _process_ai_response(batch_results_json, references_list, original_style, detected_style):
-    """
-    Process AI response and match dengan Scimago database.
-    
-    Args:
-        batch_results_json: JSON response dari AI
-        references_list: List referensi asli
-        original_style: Style yang dipilih pengguna (bisa "Auto")
-        detected_style: Style yang terdeteksi oleh AI
-    """
     detailed_results = []
     
     ACCEPTED_SCIMAGO_TYPES = {'journal', 'book series', 'trade journal', 'conference and proceeding'}
@@ -133,21 +125,42 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
         journal_name = result_json.get('parsed_journal')
         ref_type = result_json.get('reference_type', 'other')
         
-        is_indexed = False
+        is_indexed_scimago = False
+        is_indexed_scopus = False
         scimago_link = None
+        scopus_link = None
         quartile = None
-        journal_info = None
+        scimago_info = None
+        scopus_info = None
         
         # Search di Scimago database HANYA untuk tipe journal/conference
         # SKIP untuk website, report, atau organisasi
-        should_check_scimago = journal_name and ref_type in {'journal', 'conference', 'book series'}
+        should_check_databases = journal_name and ref_type in {'journal', 'conference', 'book series'}
         
-        if should_check_scimago:
-            is_indexed, journal_info = search_journal_in_scimago(journal_name)
-            if is_indexed and journal_info:
-                scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={journal_info['id']}&tip=sid"
-                quartile = journal_info['quartile']
-                ref_type = journal_info['type']
+        if should_check_databases:
+            # Check Scimago
+            is_indexed_scimago, scimago_info = search_journal_in_scimago(journal_name)
+            if is_indexed_scimago and scimago_info:
+                scimago_link = f"https://www.scimagojr.com/journalsearch.php?q={scimago_info['id']}&tip=sid"
+                quartile = scimago_info['quartile']
+                ref_type = scimago_info['type']
+            
+            # Check Scopus
+            is_indexed_scopus, scopus_info = search_journal_in_scopus(journal_name)
+            if is_indexed_scopus and scopus_info:
+                # Format link Scopus yang benar menggunakan search parameter
+                source_id = scopus_info['id']
+                source_title = scopus_info.get('title', journal_name)
+                # Encode title untuk URL
+                import urllib.parse
+                encoded_title = urllib.parse.quote(source_title)
+                scopus_link = f"https://www.scopus.com/source/sourceInfo.uri?sourceId={source_id}"
+                # Jika belum ada ref_type dari Scimago, gunakan dari Scopus
+                if not is_indexed_scimago:
+                    ref_type = scopus_info['type']
+        
+        # Gabungkan hasil - dianggap terindeks jika salah satu database menemukan
+        is_indexed = is_indexed_scimago or is_indexed_scopus
         
         # Validasi overall
         ai_assessment_valid = all([
@@ -173,11 +186,6 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
         bibtex_partial = False
         bibtex_warning = None
         
-        # LOGIC: Generate format example dan BibTeX
-        # 1. Lengkap + Format SALAH → Format example + Full BibTeX
-        # 2. TIDAK Lengkap → Partial BibTeX dengan placeholder MISSING
-        # 3. Lengkap + Format BENAR → Tidak ada BibTeX (sesuai keputusan user)
-        
         if is_complete and not is_format_correct and original_style != 'Auto':
             # Kondisi 1: Lengkap tapi format salah → Berikan contoh format yang benar
             try:
@@ -199,11 +207,6 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
                 final_feedback += f"\nContoh format {detected_style} yang benar: {format_example}"
             except Exception as e:
                 logger.warning(f"Gagal generate format example: {e}")
-        
-        # Generate BibTeX jika:
-        # - (Lengkap + Format Salah) → Full BibTeX
-        # - (Tidak Lengkap) → Partial BibTeX
-        # TIDAK generate jika: Lengkap + Format Benar
         
         should_generate_bibtex = False
         
@@ -232,34 +235,45 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
                 bibtex_string = None
                 bibtex_available = False
         
-        # UPDATED LOGIC: Prioritas utama adalah terindeks di Scimago
-        # Jika terindeks, langsung VALID (ignore format/tahun)
         if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
             is_overall_valid = True
+            
+            # Buat keterangan indeks
+            index_notes = []
+            if is_indexed_scimago:
+                index_notes.append(f"terindeks di ScimagoJR (Quartile {quartile})")
+            if is_indexed_scopus:
+                index_notes.append("terindeks di Scopus")
+            
+            index_text = " dan ".join(index_notes)
+            
             if ai_assessment_valid:
-                final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' terindeks di ScimagoJR dan memenuhi kriteria kualitas)."
+                final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' {index_text} dan memenuhi kriteria kualitas)."
             else:
                 # Tetap VALID meskipun format/tahun tidak sempurna
-                final_feedback += f" Status: VALID (Sumber terindeks di ScimagoJR dengan Quartile {quartile})."
+                final_feedback += f" Status: VALID (Sumber {index_text})."
         elif is_indexed:
-            final_feedback += f" Status: INVALID (Sumber ditemukan di ScimagoJR, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
+            final_feedback += f" Status: INVALID (Sumber ditemukan di database, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
         elif ref_type in {'website', 'report'}:
-            # Untuk website/report, tidak perlu cek Scimago
-            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}' dan tidak terindeks di database jurnal ilmiah ScimagoJR 2024)."
+            # Untuk website/report, tidak perlu cek database
+            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}' dan tidak terindeks di database jurnal ilmiah)."
         else:
-            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', namun tidak ditemukan di database ScimagoJR 2024)."
+            final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', namun tidak ditemukan di database ScimagoJR atau Scopus)."
 
         detailed_results.append({
             "reference_number": ref_num,
             "reference_text": ref_text,
-            "full_reference": full_ref_text,  # TAMBAHAN: Full reference text untuk highlighting
+            "full_reference": full_ref_text,
             "status": "valid" if is_overall_valid else "invalid",
             "reference_type": ref_type,
             "parsed_year": parsed_year,
             "parsed_journal": journal_name,
             "overall_score": overall_score,
             "is_indexed": is_indexed,
+            "is_indexed_scimago": is_indexed_scimago,
+            "is_indexed_scopus": is_indexed_scopus,
             "scimago_link": scimago_link,
+            "scopus_link": scopus_link,
             "quartile": quartile,
             "validation_details": {
                 "format_correct": result_json.get('is_format_correct', False),

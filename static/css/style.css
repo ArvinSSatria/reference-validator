@@ -631,6 +631,20 @@ select:focus {
     color: #721c24;
 }
 
+.badge-scimago {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.badge-scopus {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    font-weight: 600;
+    box-shadow: 0 2px 4px rgba(245, 87, 108, 0.3);
+}
+
 .file-upload-hint {
     font-size: 0.8rem;
     color: #666;
@@ -737,7 +751,7 @@ select:focus {
 
 /* Scimago Link Styling */
 .scimago-link {
-    color: var(--secondary-color);
+    color: #667eea;
     text-decoration: none;
     font-size: 0.9rem;
     transition: color 0.2s ease;
@@ -747,7 +761,23 @@ select:focus {
 }
 
 .scimago-link:hover {
-    color: var(--primary-color);
+    color: #764ba2;
+    text-decoration: underline;
+}
+
+/* Scopus Link Styling */
+.scopus-link {
+    color: #f5576c;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: color 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.scopus-link:hover {
+    color: #f093fb;
     text-decoration: underline;
 }
 

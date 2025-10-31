@@ -233,7 +233,12 @@ def annotate_pdf_page(
                 book_count = sum(1 for r in detailed_results if r.get('reference_type') == 'book')
                 conference_count = sum(1 for r in detailed_results if r.get('reference_type') == 'conference')
                 other_count = total - journal_count - book_count - conference_count
-                sjr_count = sum(1 for r in detailed_results if r.get('is_indexed'))
+                
+                # Hitung yang terindeks di ScimagoJR dan Scopus
+                sjr_count = sum(1 for r in detailed_results if r.get('is_indexed_scimago'))
+                scopus_count = sum(1 for r in detailed_results if r.get('is_indexed_scopus'))
+                both_count = sum(1 for r in detailed_results if r.get('is_indexed_scimago') and r.get('is_indexed_scopus'))
+                
                 year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
                 
                 q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
@@ -249,14 +254,19 @@ def annotate_pdf_page(
                     f"• Jurnal: {journal_count} ({(journal_count/total*100) if total else 0:.1f}%)\n"
                     f"• Buku: {book_count} ({(book_count/total*100) if total else 0:.1f}%)\n"
                     f"• Konferensi: {conference_count} ({(conference_count/total*100) if total else 0:.1f}%)\n"
-                    f"• Lainnya: {other_count}\n"
-                    f"Terindeks SJR: {sjr_count} ({(sjr_count/total*100) if total else 0:.1f}%)\n"
+                    f"• Lainnya: {other_count}\n\n"
+                    f"Terindeks:\n"
+                    f"• ScimagoJR: {sjr_count} ({(sjr_count/total*100) if total else 0:.1f}%)\n"
+                    f"• Scopus: {scopus_count} ({(scopus_count/total*100) if total else 0:.1f}%)\n"
+                    f"• Keduanya: {both_count} ({(both_count/total*100) if total else 0:.1f}%)\n\n"
                     f"Validitas Tahun (Recent): {year_approved} dari {total}\n"
-                    f"Kuartil: Q1:{q_counts['Q1']} | Q2:{q_counts['Q2']} | Q3:{q_counts['Q3']} | Q4:{q_counts['Q4']}\n\n"
-                    f"LEGEND:\n"
-                    f"🟢 Hijau = Journal Terindeks SJR\n"
-                    f"🔴 Pink = Journal Tidak Terindeks\n"
-                    f"🟡 Kuning = Book/Conference/Lainnya"
+                    f"Kuartil SJR:\n"
+                    f"• Q1:{q_counts['Q1']}\n"
+                    f"• Q2:{q_counts['Q2']}\n"
+                    f"• Q3:{q_counts['Q3']}\n"
+                    f"• Q4:{q_counts['Q4']}\n"
+                    f"• Tidak Ditemukan:{q_counts['Not Found']}\n"
+                    f"Dibuat pada {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 
                 # Highlight keyword dengan warna biru
@@ -267,7 +277,6 @@ def annotate_pdf_page(
                 
                 added_references_summary = True
                 start_annotating = True
-                
                 logger.info(f"✅ Summary highlight ditambahkan pada keyword '{found_keyword}' di halaman {page_num + 1}")
 
     # BAGIAN 2: HIGHLIGHT SEMUA REFERENSI (JOURNAL, BOOK, DLL)
@@ -448,12 +457,14 @@ def annotate_pdf_page(
             highlight = page.add_highlight_annot(target_rects)
             
             # Set warna berdasarkan status dan tipe
-            is_indexed = result.get('is_indexed')
+            is_indexed_scimago = result.get('is_indexed_scimago', False)
+            is_indexed_scopus = result.get('is_indexed_scopus', False)
+            is_indexed = result.get('is_indexed', False)  # Gabungan dari keduanya
             ref_type = result.get('reference_type', 'other')
             status = result.get('status', 'invalid')
             
             # Logika warna:
-            # - Hijau (INDEXED_RGB): Journal terindeks di Scimago
+            # - Hijau (INDEXED_RGB): Journal terindeks di Scimago atau Scopus
             # - Pink (PINK_RGB): Journal tidak terindeks
             # - Kuning (YEAR_RGB): Book, Conference, dan tipe lainnya
             if is_indexed:
@@ -469,30 +480,56 @@ def annotate_pdf_page(
             journal_name = result.get('parsed_journal', 'N/A')
             quartile = result.get('quartile', 'N/A')
             scimago_link = result.get('scimago_link', '')
+            scopus_link = result.get('scopus_link', '')
             parsed_year = result.get('parsed_year', 'N/A')
             
             # Build comment text berdasarkan tipe
             if ref_type == 'journal':
+                # Buat badge text
+                index_badges = []
+                if is_indexed_scimago:
+                    index_badges.append(f"ScimagoJR (Q{quartile})" if quartile and quartile != 'N/A' else "ScimagoJR")
+                if is_indexed_scopus:
+                    index_badges.append("Scopus")
+                
+                badge_text = " & ".join(index_badges) if index_badges else "Tidak Terindeks"
+                
                 comment_text = (
                     f"[{ref_number}] Journal - {status.upper()}\n"
                     f"Jurnal: {journal_name}\n"
                     f"Tahun: {parsed_year}\n"
-                    f"Kuartil: {quartile}\n"
+                    f"Indeks: {badge_text}\n"
                 )
                 if scimago_link:
-                    comment_text += f"Link: {scimago_link}"
+                    comment_text += f"ScimagoJR: {scimago_link}\n"
+                if scopus_link:
+                    comment_text += f"Scopus: {scopus_link}\n"
             else:
                 # Untuk book, conference, website, dll
+                note_text = ""
+                if is_indexed_scimago or is_indexed_scopus:
+                    # Jika selain jurnal tapi terindeks, beri keterangan
+                    index_info = []
+                    if is_indexed_scimago:
+                        index_info.append("ScimagoJR")
+                    if is_indexed_scopus:
+                        index_info.append("Scopus")
+                    note_text = f"\nCatatan: Terindeks di {' & '.join(index_info)}"
+                
                 comment_text = (
                     f"[{ref_number}] {ref_type.title()}\n"
                     f"Sumber: {journal_name}\n"
                     f"Tahun: {parsed_year}\n"
-                    f"Status: {status.upper()}\n"
+                    f"Status: {status.upper()}{note_text}\n"
                 )
             
             # Title untuk annotation
-            if is_indexed:
-                title = "Terindeks Scimago"
+            if is_indexed_scimago and is_indexed_scopus:
+                title = "Terindeks ScimagoJR & Scopus"
+            elif is_indexed_scimago:
+                title = "Terindeks ScimagoJR"
+            elif is_indexed_scopus:
+                title = "Terindeks Scopus"
             elif ref_type == 'journal':
                 title = "Journal (Tidak Terindeks)"
             else:

@@ -274,36 +274,53 @@ function createReferenceItemHTML(result, index) {
     }
 
     let indexBadgeHTML = '';
-    // Tampilkan badge ini JIKA SUMBERNYA TERINDEKS, apa pun tipenya
-    if (result.is_indexed) {
-        indexBadgeHTML = `
-        <div class="validation-badge badge-valid">
-            Terindeks Scimago: ✓
+    // Tampilkan badge untuk Scimago dan/atau Scopus
+    if (result.is_indexed_scimago) {
+        indexBadgeHTML += `
+        <div class="validation-badge badge-scimago">
+            <i class="fas fa-star"></i> Terindeks ScimagoJR
+        </div>`;
+    }
+    
+    if (result.is_indexed_scopus) {
+        indexBadgeHTML += `
+        <div class="validation-badge badge-scopus">
+            <i class="fas fa-certificate"></i> Terindeks Scopus
         </div>`;
     }
 
-    let scimagoLinkHTML = '';
+    let databaseLinksHTML = '';
     if (result.scimago_link) {
-        scimagoLinkHTML = `
+        databaseLinksHTML += `
             <p class="meta-info">
-                <strong>Link Scimago:</strong> 
+                <strong>Link ScimagoJR:</strong> 
                 <a href="${result.scimago_link}" target="_blank" rel="noopener noreferrer" class="scimago-link">
                     Verifikasi di ScimagoJR <i class="fas fa-external-link-alt"></i>
                 </a>
             </p>`;
     }
+    
+    if (result.scopus_link) {
+        databaseLinksHTML += `
+            <p class="meta-info">
+                <strong>Link Scopus:</strong> 
+                <a href="${result.scopus_link}" target="_blank" rel="noopener noreferrer" class="scopus-link">
+                    Verifikasi di Scopus <i class="fas fa-external-link-alt"></i>
+                </a>
+            </p>`;
+    }
 
     let quartileHTML = '';
-    if (result.is_indexed) {
+    if (result.is_indexed_scimago) {
         if (result.quartile && result.quartile !== '-') {
             quartileHTML = `
             <p class="meta-info">
-                <strong>Kuartil:</strong> ${result.quartile}
+                <strong>Kuartil ScimagoJR:</strong> ${result.quartile}
             </p>`;
         } else {
             quartileHTML = `
             <p class="meta-info">
-                <strong>Kuartil:</strong> Tidak Tersedia
+                <strong>Kuartil ScimagoJR:</strong> Tidak Tersedia
             </p>`;
         }
     }
@@ -341,7 +358,7 @@ function createReferenceItemHTML(result, index) {
             <p class="meta-info"><strong>Sumber Terdeteksi:</strong> ${result.parsed_journal || 'Tidak terdeteksi'}</p>
             <p class="meta-info"><strong>Jenis Terdeteksi:</strong> ${result.reference_type || 'Tidak terdeteksi'}</p>
             
-            ${scimagoLinkHTML}
+            ${databaseLinksHTML}
             ${quartileHTML}
             ${bibtexHTML}
             

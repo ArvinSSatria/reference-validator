@@ -25,4 +25,9 @@ class Config:
     MIN_REFERENCE_COUNT = 10
     MAX_REFERENCE_COUNT = 150
     JOURNAL_PROPORTION_THRESHOLD = 80.0
-    REFERENCE_YEAR_THRESHOLD = 5 
+    REFERENCE_YEAR_THRESHOLD = 5
+    
+    # Pengaturan Auto-Cleanup
+    AUTO_CLEANUP_ENABLED = True  # Set False untuk disable auto-cleanup
+    AUTO_CLEANUP_MAX_AGE_HOURS = 1  # File lebih lama dari ini akan dihapus
+ 

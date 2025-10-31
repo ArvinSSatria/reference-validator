@@ -1,7 +1,8 @@
 import os
 import io
 import json
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from flask import render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
 import uuid
@@ -9,6 +10,7 @@ from app import app, logger
 from app.services.validation_service import process_validation_request
 from app.services.pdf_service import create_annotated_pdf
 from app.services.docx_service import convert_docx_to_pdf
+from config import Config
 
 @app.route('/')
 def index():
@@ -19,6 +21,10 @@ def validate_references_api():
     try:
         # Hapus file-file dari sesi sebelumnya
         _cleanup_session_files()
+        
+        # Auto-cleanup file lama (> 1 jam) dari folder uploads
+        if Config.AUTO_CLEANUP_ENABLED:
+            _cleanup_old_upload_files(max_age_hours=Config.AUTO_CLEANUP_MAX_AGE_HOURS)
 
         # Buat ID unik untuk sesi validasi ini
         session_id = str(uuid.uuid4())
@@ -198,3 +204,45 @@ def _cleanup_session_files():
                 logger.info(f"File sesi lama dihapus: {filepath}")
             except Exception as e:
                 logger.warning(f"Gagal menghapus file sesi lama {filepath}: {e}")
+
+
+def _cleanup_old_upload_files(max_age_hours=1):
+    """
+    Menghapus file-file di folder uploads yang lebih tua dari max_age_hours.
+    Dipanggil secara otomatis saat ada request validasi baru.
+    
+    Args:
+        max_age_hours: Umur maksimal file dalam jam (default: 1 jam)
+    """
+    try:
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+        if not os.path.exists(upload_folder):
+            return
+        
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        deleted_count = 0
+        
+        for filename in os.listdir(upload_folder):
+            filepath = os.path.join(upload_folder, filename)
+            
+            # Skip jika bukan file
+            if not os.path.isfile(filepath):
+                continue
+            
+            # Cek umur file
+            file_age = current_time - os.path.getmtime(filepath)
+            
+            if file_age > max_age_seconds:
+                try:
+                    os.remove(filepath)
+                    deleted_count += 1
+                    logger.debug(f"🗑️ Auto-deleted old file: {filename} (age: {file_age/3600:.1f}h)")
+                except Exception as e:
+                    logger.warning(f"Failed to delete old file {filename}: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"✅ Auto-cleanup: {deleted_count} old files deleted (older than {max_age_hours}h)")
+    
+    except Exception as e:
+        logger.error(f"Error during auto-cleanup: {e}")

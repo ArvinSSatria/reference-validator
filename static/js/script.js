@@ -1,5 +1,5 @@
 let currentResults = [];
-let currentFilter = 'indexed';
+let currentFilter = 'invalid';
 
 const form = document.getElementById('referenceForm');
 const fileInput = document.getElementById('fileInput');
@@ -203,12 +203,23 @@ function displayResults(data) {
 
     // Enable download button HANYA jika input dari file (bukan text)
     const downloadBtn = document.getElementById('downloadBtn');
+    const downloadBibtexAllBtn = document.getElementById('downloadBibtexAllBtn');
+    
     if (fileInput.files.length > 0) {
         downloadBtn.disabled = false;
         downloadBtn.style.display = 'inline-block';
     } else {
         // Untuk text input, sembunyikan tombol download PDF
         downloadBtn.style.display = 'none';
+    }
+    
+    // Enable download all BibTeX jika ada referensi dengan BibTeX
+    const hasBibtex = detailed_results.some(r => r.bibtex_available);
+    if (hasBibtex) {
+        downloadBibtexAllBtn.disabled = false;
+        downloadBibtexAllBtn.style.display = 'inline-block';
+    } else {
+        downloadBibtexAllBtn.style.display = 'none';
     }
 }
 
@@ -402,7 +413,49 @@ downloadBtn.addEventListener('click', () => {
     window.open('/api/download_report', '_blank');
 });
 
+const downloadBibtexAllBtn = document.getElementById('downloadBibtexAllBtn');
+downloadBibtexAllBtn.addEventListener('click', () => {
+    downloadAllBibTeX();
+});
+
 // Function untuk download BibTeX
 function downloadBibTeX(refNumber) {
     window.open(`/api/download_bibtex/${refNumber}`, '_blank');
+}
+
+// Function untuk download semua BibTeX sekaligus
+function downloadAllBibTeX() {
+    if (!currentResults || currentResults.length === 0) {
+        alert('Tidak ada hasil referensi yang tersedia.');
+        return;
+    }
+    
+    // Filter hanya referensi yang punya BibTeX
+    const referencesWithBibtex = currentResults.filter(r => r.bibtex_available && r.bibtex_string);
+    
+    if (referencesWithBibtex.length === 0) {
+        alert('Tidak ada referensi dengan BibTeX yang tersedia untuk diunduh.');
+        return;
+    }
+    
+    // Gabungkan semua BibTeX entries
+    const allBibtex = referencesWithBibtex.map(r => r.bibtex_string).join('\n\n');
+    
+    // Buat file dan download
+    const blob = new Blob([allBibtex], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    // Generate filename dengan timestamp
+    const timestamp = new Date().toISOString().slice(0, 10);
+    link.download = `references_${timestamp}.bib`;
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    
+    // Log info
+    console.log(`Downloaded ${referencesWithBibtex.length} BibTeX entries`);
 }

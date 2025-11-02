@@ -134,19 +134,22 @@ Contoh:
 
                 <div class="results-toolbar">
                     <div class="tab-buttons">
-                        <button class="tab-button active" onclick="showTab(event, 'indexed')">
-                            <i class="fas fa-star"></i> SJR (<span id="indexedCount">0</span>)
+                        <button class="tab-button active" onclick="showTab(event, 'invalid')">
+                            <i class="fas fa-times"></i> Invalid (<span id="invalidCount">0</span>)
                         </button>
                         <button class="tab-button" onclick="showTab(event, 'valid')">
                             <i class="fas fa-check"></i> Valid (<span id="validCount">0</span>)
                         </button>
-                        <button class="tab-button" onclick="showTab(event, 'invalid')">
-                            <i class="fas fa-times"></i> Invalid (<span id="invalidCount">0</span>)
+                        <button class="tab-button" onclick="showTab(event, 'indexed')">
+                            <i class="fas fa-star"></i> SJR (<span id="indexedCount">0</span>)
                         </button>
                     </div>
 
                     <!-- TOMBOL DOWNLOAD BARU DI SINI -->
                     <div class="action-buttons">
+                        <button class="tab-button" id="downloadBibtexAllBtn" disabled>
+                            <i class="fas fa-file-code"></i> Export All as .bib
+                        </button>
                         <button class="tab-button" id="downloadBtn" disabled>
                             <i class="fas fa-download"></i> Download Hasil
                         </button>

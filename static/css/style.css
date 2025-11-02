@@ -596,6 +596,17 @@ select:focus {
     }
     
     .action-buttons .tab-button {
+        flex: 1;
+        min-width: 120px;
+    }
+}
+
+@media (max-width: 480px) {
+    .action-buttons {
+        flex-direction: column;
+    }
+    
+    .action-buttons .tab-button {
         width: 100%;
     }
 }

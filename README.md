@@ -145,53 +145,6 @@ Edit `config.py` to customize application behavior:
 
 ---
 
-### API Endpoints
-
-#### POST /api/validate
-
-Validate references from file or text input.
-
-Request (with file):
-```bash
-curl -X POST -F "file=@document.pdf" http://localhost:5000/api/validate
-```
-
-Request (with text):
-```bash
-curl -X POST -d "text=Reference text here" http://localhost:5000/api/validate
-```
-
-Response:
-```json
-{
-  "validation_status": "passed",
-  "summary": {
-    "total_references": 10,
-    "valid_references": 9,
-    "invalid_references": 1
-  },
-  "detailed_results": [...]
-}
-```
-
-#### GET /api/download_report
-
-Download annotated PDF with validation results.
-
-```bash
-curl http://localhost:5000/api/download_report -o report.pdf
-```
-
-#### GET /api/download_bibtex/<reference_number>
-
-Download BibTeX file for a specific reference.
-
-```bash
-curl http://localhost:5000/api/download_bibtex/1 -o reference.bib
-```
-
----
-
 ### Troubleshooting
 
 **Problem**: Application fails to start  
@@ -208,17 +161,6 @@ curl http://localhost:5000/api/download_bibtex/1 -o reference.bib
 
 **Problem**: PDF annotation fails  
 **Solution**: Ensure uploaded PDF is not encrypted or corrupted
-
----
-
-### Support
-
-For issues, questions, or feature requests:
-
--   Check the application logs for error messages
--   Ensure all system requirements are met
--   Verify configuration in `config.py`
--   Contact the developer with error logs and steps to reproduce
 
 ---
 
@@ -363,53 +305,6 @@ Edit `config.py` untuk menyesuaikan perilaku aplikasi:
 
 ---
 
-### Endpoint API
-
-#### POST /api/validate
-
-Validasi referensi dari file atau input teks.
-
-Request (dengan file):
-```bash
-curl -X POST -F "file=@document.pdf" http://localhost:5000/api/validate
-```
-
-Request (dengan teks):
-```bash
-curl -X POST -d "text=Teks referensi di sini" http://localhost:5000/api/validate
-```
-
-Response:
-```json
-{
-  "validation_status": "passed",
-  "summary": {
-    "total_references": 10,
-    "valid_references": 9,
-    "invalid_references": 1
-  },
-  "detailed_results": [...]
-}
-```
-
-#### GET /api/download_report
-
-Unduh PDF beranotasi dengan hasil validasi.
-
-```bash
-curl http://localhost:5000/api/download_report -o report.pdf
-```
-
-#### GET /api/download_bibtex/<reference_number>
-
-Unduh file BibTeX untuk referensi tertentu.
-
-```bash
-curl http://localhost:5000/api/download_bibtex/1 -o reference.bib
-```
-
----
-
 ### Troubleshooting (Pemecahan Masalah)
 
 **Masalah**: Aplikasi gagal dimulai  
@@ -426,17 +321,6 @@ curl http://localhost:5000/api/download_bibtex/1 -o reference.bib
 
 **Masalah**: Anotasi PDF gagal  
 **Solusi**: Pastikan PDF yang diupload tidak terenkripsi atau corrupt
-
----
-
-### Dukungan
-
-Untuk masalah, pertanyaan, atau permintaan fitur:
-
--   Periksa log aplikasi untuk pesan error
--   Pastikan semua persyaratan sistem terpenuhi
--   Verifikasi konfigurasi di `config.py`
--   Hubungi pengembang dengan log error dan langkah-langkah untuk mereproduksi masalah
 
 ---
 
@@ -479,23 +363,4 @@ python run.py
 
 Proyek ini dilisensikan di bawah MIT License - lihat file [LICENSE](LICENSE) untuk detail lengkap.
 
----
 
-### Kontribusi
-
-Kami menerima kontribusi. Silakan buat branch baru untuk fitur atau bug fix Anda:
-
-```bash
-git checkout -b feature/nama-fitur
-git commit -am 'Add new feature'
-git push origin feature/nama-fitur
-```
-
----
-
-### Kontak & Dukungan
-
-Untuk informasi lebih lanjut atau dukungan:
-
--   GitHub: https://github.com/ArvinSSatria/reference-validator
--   Issues: Gunakan GitHub Issues untuk melaporkan bug atau meminta fitur

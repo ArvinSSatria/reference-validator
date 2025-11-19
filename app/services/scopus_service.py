@@ -145,7 +145,7 @@ def load_scopus_data():
     global SCOPUS_DATA
     
     # Setup paths - menggunakan file scopus
-    csv_file = Path("scopus 2025.csv")
+    csv_file = Path("data/scopus 2025.csv")
     cache_file = csv_file.with_suffix('.scopus.pkl')
     
     # Try loading from cache first

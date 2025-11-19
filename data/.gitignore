@@ -1,0 +1,7 @@
+# Ignore cache files
+*.pkl
+*.scopus.pkl
+*.scimago.pkl
+
+# Keep CSV files in repo (or comment these out if they're too large)
+# *.csv

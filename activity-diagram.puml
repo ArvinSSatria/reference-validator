@@ -1,0 +1,70 @@
+@startuml Activity-Diagram-Swimlane
+
+title Activity Diagram - Sistem Pemrosesan Referensi Otomatis
+
+|User|
+start
+:Membuka aplikasi web;
+:Upload file dokumen
+(PDF/DOCX);
+:Mengatur persyaratan;
+:Mengklik tombol validasi;
+
+|Sistem|
+:Menerima file;
+:Validasi format file;
+
+if (Format valid?) then (ya)
+  :Simpan file sementara;
+  :Ekstraksi daftar pustaka;
+  
+  if (Daftar pustaka ditemukan?) then (ya)
+    :Kirim ke Google Gemini API;
+    :Parsing referensi dengan AI;
+    
+    if (Parsing berhasil?) then (ya)
+      :Validasi kelengkapan referensi;
+      :Cek indeksasi jurnal
+      di ScimagoJR & Scopus;
+      :Hitung statistik hasil;
+      :Tampilkan hasil dalam tabel;
+      
+      |User|
+      :Melihat hasil validasi;
+      
+      split
+        :Filter referensi
+        berdasarkan tab;
+      split again
+        :Download PDF
+        teranotasi;
+      split again
+        :Download file
+        BibTeX;
+      split again
+        :Lihat statistik
+        validasi;
+      end split
+      
+      :Selesai;
+      stop
+      
+    else (tidak)
+      :Tampilkan error
+      "Gagal parsing dengan AI";
+      stop
+    endif
+    
+  else (tidak)
+    :Tampilkan error
+    "Daftar pustaka tidak ditemukan";
+    stop
+  endif
+  
+else (tidak)
+  :Tampilkan error
+  "Format tidak didukung";
+  stop
+endif
+
+@enduml

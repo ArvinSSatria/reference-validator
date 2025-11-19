@@ -1,5 +1,3 @@
-# run.py (Versi Modular)
-
 from app import app, logger
 
 if __name__ == '__main__':

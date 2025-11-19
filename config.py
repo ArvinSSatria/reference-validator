@@ -4,17 +4,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    """
-    Kelas konfigurasi terpusat untuk aplikasi.
-    Mengambil nilai dari environment variables jika ada.
-    """
     # Konfigurasi Flask
     SECRET_KEY = os.environ.get('SECRET_KEY', 'kunci-rahasia-default-yang-aman')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     
     # Konfigurasi Aplikasi
     ALLOWED_EXTENSIONS = {'docx', 'pdf'}
-    SCIMAGO_FILE_PATH = 'scimagojr 2024.csv'
+    SCIMAGO_FILE_PATH = 'data/scimagojr 2024.csv'
     
     UPLOAD_FOLDER = 'uploads'
     

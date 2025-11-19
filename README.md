@@ -1,273 +1,92 @@
-# Reference Validator - Sistem Pemrosesan Referensi Otomatis
+# Reference Validator
 
-[English Version](#english-version) | [Versi Indonesia](#versi-indonesia)
-
----
-
-## Versi Indonesia
-
-### Deskripsi Proyek
-
-Reference Validator adalah sistem berbasis web untuk validasi dan pemrosesan referensi akademik secara otomatis. Sistem ini menggunakan teknologi Natural Language Processing (NLP) dan Artificial Intelligence (AI) untuk menganalisis daftar pustaka dari dokumen akademik.
-
-### Fitur Utama
-
-- Validasi referensi dari file PDF dan DOCX
-- Validasi referensi dari teks input langsung
-- Pengolahan metadata referensi menggunakan Google Generative AI (Gemini)
-- Pencocokkan jurnal dengan database ScimagoJR dan Scopus
-- Penciptaan PDF dengan anotasi hasil validasi
-- Ekspor referensi dalam format BibTeX
-- Auto-cleanup file sementara untuk manajemen disk
-- Antarmuka web yang responsif dan user-friendly
-
-### Teknologi yang Digunakan
-
-- **Backend**: Flask (Python Web Framework)
-- **Frontend**: HTML, CSS, JavaScript
-- **AI/ML**: Google Generative AI (Gemini API)
-- **Database Jurnal**: ScimagoJR dan Scopus
-- **Pemrosesan Dokumen**: python-docx, PyMuPDF, lxml
-- **Data Processing**: Pandas, NumPy
-
-### Persyaratan Sistem
-
-- Python 3.8 atau lebih tinggi
-- pip (Python Package Manager)
-- Koneksi internet aktif
-- Google Gemini API Key
-
-### Instalasi
-
-1. Clone repository:
-```bash
-git clone https://github.com/ArvinSSatria/reference-validator.git
-cd reference-validator
-```
-
-2. Buat virtual environment (opsional namun direkomendasikan):
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-3. Instal dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Konfigurasi environment variables. Buat file `.env` di direktori root:
-```
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-5. Jalankan aplikasi:
-```bash
-python run.py
-```
-
-6. Buka browser dan akses aplikasi di:
-```
-http://localhost:5000
-```
-
-### Struktur Direktori
-
-```
-reference-validator/
-├── app/
-│   ├── __init__.py
-│   ├── routes.py
-│   ├── models/
-│   │   └── reference.py
-│   ├── services/
-│   │   ├── ai_service.py
-│   │   ├── bibtex_service.py
-│   │   ├── docx_service.py
-│   │   ├── pdf_annotator.py
-│   │   ├── pdf_service.py
-│   │   ├── scimago_service.py
-│   │   ├── scopus_service.py
-│   │   └── validation_service.py
-│   └── utils/
-│       ├── file_utils.py
-│       └── text_utils.py
-├── templates/
-│   └── index.html
-├── static/
-│   ├── css/
-│   │   └── style.css
-│   └── js/
-│       └── script.js
-├── data/
-│   ├── scimagojr 2024.csv
-│   └── scopus 2025.csv
-├── uploads/
-├── config.py
-├── run.py
-├── requirements.txt
-└── README.md
-```
-
-### Konfigurasi
-
-File `config.py` berisi konfigurasi utama aplikasi:
-
-- `SECRET_KEY`: Kunci rahasia Flask untuk session security
-- `MAX_CONTENT_LENGTH`: Ukuran file maksimal yang diizinkan (default: 16MB)
-- `ALLOWED_EXTENSIONS`: Ekstensi file yang diizinkan (pdf, docx)
-- `UPLOAD_FOLDER`: Direktori untuk menyimpan file upload
-- `SCIMAGO_FILE_PATH`: Path ke database ScimagoJR
-- `MIN_REFERENCE_COUNT`: Jumlah referensi minimal
-- `MAX_REFERENCE_COUNT`: Jumlah referensi maksimal
-- `JOURNAL_PROPORTION_THRESHOLD`: Persentase minimum jurnal dalam referensi
-- `REFERENCE_YEAR_THRESHOLD`: Tahun maksimal untuk menentukan recency
-- `AUTO_CLEANUP_ENABLED`: Aktifkan/nonaktifkan pembersihan otomatis
-- `AUTO_CLEANUP_MAX_AGE_HOURS`: Usia maksimal file sebelum dihapus
-
-### Penggunaan API
-
-#### 1. Validasi Referensi
-
-Endpoint: `POST /api/validate`
-
-Request dengan file:
-```bash
-curl -X POST -F "file=@document.pdf" http://localhost:5000/api/validate
-```
-
-Request dengan teks:
-```bash
-curl -X POST -d "text=Nama Jurnal, 2024" http://localhost:5000/api/validate
-```
-
-Response:
-```json
-{
-  "validation_status": "passed",
-  "summary": {
-    "total_references": 10,
-    "valid_references": 9,
-    "invalid_references": 1
-  },
-  "detailed_results": [...]
-}
-```
-
-#### 2. Download Laporan PDF
-
-Endpoint: `GET /api/download_report`
-
-Response: File PDF dengan anotasi hasil validasi
-
-#### 3. Download BibTeX
-
-Endpoint: `GET /api/download_bibtex/<reference_number>`
-
-Response: File BibTeX untuk referensi tertentu
-
-### Troubleshooting
-
-1. **Error: Gemini API Key tidak ditemukan**
-   - Pastikan file `.env` sudah dibuat dengan `GEMINI_API_KEY` yang valid
-   - Restart aplikasi setelah mengubah `.env`
-
-2. **Error: File tidak dapat diproses**
-   - Pastikan format file PDF atau DOCX dan tidak corrupt
-   - Periksa ukuran file tidak melebihi 16MB
-
-3. **Error: Database jurnal tidak load**
-   - Pastikan file `data/scimagojr 2024.csv` dan `data/scopus 2025.csv` ada
-   - Pastikan file CSV tidak corrupt
-
-### Kontribusi
-
-Kami menerima kontribusi. Silakan buat branch baru untuk fitur atau bug fix Anda:
-
-```bash
-git checkout -b feature/nama-fitur
-git commit -am 'Add new feature'
-git push origin feature/nama-fitur
-```
-
-### Lisensi
-
-Proyek ini berada di bawah lisensi MIT. Lihat file LICENSE untuk detail lengkap.
-
-### Kontak
-
-Untuk pertanyaan atau dukungan, silakan hubungi:
-- Email: arvin.satria@example.com
-- GitHub: @ArvinSSatria
+**[English](#english-version) | [Bahasa Indonesia](#versi-bahasa-indonesia)**
 
 ---
 
 ## English Version
 
-### Project Description
+### Description
 
-Reference Validator is a web-based system for automatic validation and processing of academic references. The system uses Natural Language Processing (NLP) and Artificial Intelligence (AI) technologies to analyze bibliographies from academic documents.
+Reference Validator is a web-based application for automatic validation and processing of academic references. It extracts and validates references from PDF and DOCX files against ScimagoJR and Scopus databases, and generates annotated PDF outputs with detailed validation results.
 
-### Main Features
+### Key Features
 
-- Reference validation from PDF and DOCX files
-- Reference validation from direct text input
-- Reference metadata processing using Google Generative AI (Gemini)
-- Journal matching with ScimagoJR and Scopus databases
-- PDF creation with validation result annotations
-- Reference export in BibTeX format
-- Auto-cleanup of temporary files for disk management
-- Responsive and user-friendly web interface
-
-### Technologies Used
-
-- **Backend**: Flask (Python Web Framework)
-- **Frontend**: HTML, CSS, JavaScript
-- **AI/ML**: Google Generative AI (Gemini API)
-- **Journal Database**: ScimagoJR and Scopus
-- **Document Processing**: python-docx, PyMuPDF, lxml
-- **Data Processing**: Pandas, NumPy
+-   Extract and validate reference lists from PDF and DOCX files
+-   Direct text input for reference validation
+-   Match journal names against ScimagoJR and Scopus datasets
+-   Verification rules (quartile, publication year, journal percentage, etc.)
+-   Generate PDF files with highlighted validation results
+-   Export references in BibTeX format
+-   Automatic cleanup of temporary files
+-   Responsive web-based GUI interface
 
 ### System Requirements
 
-- Python 3.8 or higher
-- pip (Python Package Manager)
-- Active internet connection
-- Google Gemini API Key
+-   Python 3.8 or higher
+-   pip (Python Package Manager)
+-   Active internet connection
+-   Google Gemini API Key
+-   Modern web browser (Chrome, Firefox, Edge, Safari)
+
+---
 
 ### Installation
 
-1. Clone the repository:
+#### Step 1: Clone the Repository
+
 ```bash
 git clone https://github.com/ArvinSSatria/reference-validator.git
 cd reference-validator
 ```
 
-2. Create a virtual environment (optional but recommended):
+#### Step 2: Create Virtual Environment (Recommended)
+
 ```bash
 python -m venv venv
 venv\Scripts\activate
 ```
 
-3. Install dependencies:
+#### Step 3: Install Dependencies
+
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-4. Configure environment variables. Create a `.env` file in the root directory:
+#### Step 4: Configure Environment Variables
+
+Create a `.env` file in the project root directory:
+
 ```
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-5. Run the application:
+#### Step 5: Run the Application
+
 ```bash
 python run.py
 ```
 
-6. Open your browser and access the application at:
+The application will be available at:
 ```
 http://localhost:5000
 ```
+
+---
+
+### How to Use
+
+1. **Open the Application**: Launch your web browser and navigate to `http://localhost:5000`
+2. **Choose Input Method**:
+   - **Upload File**: Select a PDF or DOCX file containing references
+   - **Enter Text**: Paste or type reference text directly
+3. **Start Validation**: Click "Start Validation" and wait for processing
+4. **View Results**: Review detailed validation results on the page
+5. **Download Report**: Save the annotated PDF with highlights and validation notes
+6. **Export References** (Optional): Download individual references in BibTeX format
+
+---
 
 ### Directory Structure
 
@@ -307,36 +126,39 @@ reference-validator/
 └── README.md
 ```
 
+---
+
 ### Configuration
 
-The `config.py` file contains the main application configuration:
+Edit `config.py` to customize application behavior:
 
-- `SECRET_KEY`: Flask secret key for session security
-- `MAX_CONTENT_LENGTH`: Maximum file size allowed (default: 16MB)
-- `ALLOWED_EXTENSIONS`: Allowed file extensions (pdf, docx)
-- `UPLOAD_FOLDER`: Directory for storing uploaded files
-- `SCIMAGO_FILE_PATH`: Path to ScimagoJR database
-- `MIN_REFERENCE_COUNT`: Minimum number of references
-- `MAX_REFERENCE_COUNT`: Maximum number of references
-- `JOURNAL_PROPORTION_THRESHOLD`: Minimum percentage of journals in references
-- `REFERENCE_YEAR_THRESHOLD`: Maximum year to determine recency
-- `AUTO_CLEANUP_ENABLED`: Enable/disable automatic cleanup
-- `AUTO_CLEANUP_MAX_AGE_HOURS`: Maximum file age before deletion
+-   `SECRET_KEY`: Flask session security key
+-   `MAX_CONTENT_LENGTH`: Maximum file upload size (default: 16MB)
+-   `ALLOWED_EXTENSIONS`: Allowed file types (pdf, docx)
+-   `UPLOAD_FOLDER`: Directory for temporary uploaded files
+-   `MIN_REFERENCE_COUNT`: Minimum required references
+-   `MAX_REFERENCE_COUNT`: Maximum allowed references
+-   `JOURNAL_PROPORTION_THRESHOLD`: Minimum journal percentage
+-   `REFERENCE_YEAR_THRESHOLD`: Acceptable publication year range
+-   `AUTO_CLEANUP_ENABLED`: Enable automatic cleanup of old files
+-   `AUTO_CLEANUP_MAX_AGE_HOURS`: Age threshold for file cleanup
 
-### API Usage
+---
 
-#### 1. Validate References
+### API Endpoints
 
-Endpoint: `POST /api/validate`
+#### POST /api/validate
 
-Request with file:
+Validate references from file or text input.
+
+Request (with file):
 ```bash
 curl -X POST -F "file=@document.pdf" http://localhost:5000/api/validate
 ```
 
-Request with text:
+Request (with text):
 ```bash
-curl -X POST -d "text=Journal Name, 2024" http://localhost:5000/api/validate
+curl -X POST -d "text=Reference text here" http://localhost:5000/api/validate
 ```
 
 Response:
@@ -352,48 +174,328 @@ Response:
 }
 ```
 
-#### 2. Download Report PDF
+#### GET /api/download_report
 
-Endpoint: `GET /api/download_report`
+Download annotated PDF with validation results.
 
-Response: PDF file with validation result annotations
+```bash
+curl http://localhost:5000/api/download_report -o report.pdf
+```
 
-#### 3. Download BibTeX
+#### GET /api/download_bibtex/<reference_number>
 
-Endpoint: `GET /api/download_bibtex/<reference_number>`
+Download BibTeX file for a specific reference.
 
-Response: BibTeX file for a specific reference
+```bash
+curl http://localhost:5000/api/download_bibtex/1 -o reference.bib
+```
+
+---
 
 ### Troubleshooting
 
-1. **Error: Gemini API Key not found**
-   - Ensure that the `.env` file has been created with a valid `GEMINI_API_KEY`
-   - Restart the application after modifying `.env`
+**Problem**: Application fails to start  
+**Solution**: Ensure Python 3.8+ is installed and all dependencies are installed via `pip install -r requirements.txt`
 
-2. **Error: File cannot be processed**
-   - Ensure the file format is PDF or DOCX and not corrupted
-   - Check that the file size does not exceed 16MB
+**Problem**: Gemini API Key error  
+**Solution**: Create `.env` file with valid `GEMINI_API_KEY` and restart the application
 
-3. **Error: Journal database not loaded**
-   - Ensure that `data/scimagojr 2024.csv` and `data/scopus 2025.csv` files exist
-   - Ensure that CSV files are not corrupted
+**Problem**: File upload fails  
+**Solution**: Ensure file is PDF or DOCX format and does not exceed 16MB
 
-### Contributing
+**Problem**: Journal not found in database  
+**Solution**: Check journal name spelling. Database contains ScimagoJR and Scopus journals
 
-We welcome contributions. Please create a new branch for your features or bug fixes:
+**Problem**: PDF annotation fails  
+**Solution**: Ensure uploaded PDF is not encrypted or corrupted
+
+---
+
+### Support
+
+For issues, questions, or feature requests:
+
+-   Check the application logs for error messages
+-   Ensure all system requirements are met
+-   Verify configuration in `config.py`
+-   Contact the developer with error logs and steps to reproduce
+
+---
+
+## Versi Bahasa Indonesia
+
+### Deskripsi
+
+Reference Validator adalah aplikasi berbasis web untuk validasi dan pemrosesan referensi akademik secara otomatis. Aplikasi ini mengekstrak dan memvalidasi referensi dari file PDF dan DOCX terhadap database ScimagoJR dan Scopus, serta menghasilkan output PDF beranotasi dengan hasil validasi terperinci.
+
+### Fitur Utama
+
+-   Ekstraksi dan validasi daftar referensi dari file PDF dan DOCX
+-   Validasi referensi melalui input teks langsung
+-   Pencocokan nama jurnal dengan dataset ScimagoJR dan Scopus
+-   Aturan verifikasi (kuartil, tahun publikasi, persentase jurnal, dll.)
+-   Generate file PDF dengan highlight hasil validasi
+-   Ekspor referensi dalam format BibTeX
+-   Pembersihan otomatis file sementara
+-   Antarmuka GUI berbasis web yang responsif
+
+### Kebutuhan Sistem
+
+-   Python 3.8 atau lebih tinggi
+-   pip (Python Package Manager)
+-   Koneksi internet aktif
+-   Google Gemini API Key
+-   Web browser modern (Chrome, Firefox, Edge, Safari)
+
+---
+
+### Cara Instalasi
+
+#### Langkah 1: Clone Repository
 
 ```bash
-git checkout -b feature/feature-name
-git commit -am 'Add new feature'
-git push origin feature/feature-name
+git clone https://github.com/ArvinSSatria/reference-validator.git
+cd reference-validator
 ```
 
-### License
+#### Langkah 2: Buat Virtual Environment (Direkomendasikan)
 
-This project is licensed under the MIT License. See the LICENSE file for full details.
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
 
-### Contact
+#### Langkah 3: Install Dependencies
 
-For questions or support, please contact:
-- Email: arvin.satria@example.com
-- GitHub: @ArvinSSatria
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### Langkah 4: Konfigurasi Environment Variables
+
+Buat file `.env` di direktori root proyek:
+
+```
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+#### Langkah 5: Jalankan Aplikasi
+
+```bash
+python run.py
+```
+
+Aplikasi akan tersedia di:
+```
+http://localhost:5000
+```
+
+---
+
+### Cara Penggunaan
+
+1. **Buka Aplikasi**: Buka web browser dan navigasi ke `http://localhost:5000`
+2. **Pilih Metode Input**:
+   - **Upload File**: Pilih file PDF atau DOCX yang berisi referensi
+   - **Input Teks**: Paste atau ketik teks referensi langsung
+3. **Mulai Validasi**: Klik "Start Validation" dan tunggu proses selesai
+4. **Lihat Hasil**: Tinjau hasil validasi terperinci di halaman
+5. **Download Laporan**: Simpan PDF beranotasi dengan highlight dan catatan validasi
+6. **Ekspor Referensi** (Opsional): Unduh referensi individual dalam format BibTeX
+
+---
+
+### Struktur Direktori
+
+```
+reference-validator/
+├── app/
+│   ├── __init__.py
+│   ├── routes.py
+│   ├── models/
+│   │   └── reference.py
+│   ├── services/
+│   │   ├── ai_service.py
+│   │   ├── bibtex_service.py
+│   │   ├── docx_service.py
+│   │   ├── pdf_annotator.py
+│   │   ├── pdf_service.py
+│   │   ├── scimago_service.py
+│   │   ├── scopus_service.py
+│   │   └── validation_service.py
+│   └── utils/
+│       ├── file_utils.py
+│       └── text_utils.py
+├── templates/
+│   └── index.html
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       └── script.js
+├── data/
+│   ├── scimagojr 2024.csv
+│   └── scopus 2025.csv
+├── uploads/
+├── config.py
+├── run.py
+├── requirements.txt
+└── README.md
+```
+
+---
+
+### Konfigurasi
+
+Edit `config.py` untuk menyesuaikan perilaku aplikasi:
+
+-   `SECRET_KEY`: Kunci keamanan session Flask
+-   `MAX_CONTENT_LENGTH`: Ukuran file upload maksimum (default: 16MB)
+-   `ALLOWED_EXTENSIONS`: Tipe file yang diizinkan (pdf, docx)
+-   `UPLOAD_FOLDER`: Direktori untuk file upload sementara
+-   `MIN_REFERENCE_COUNT`: Jumlah referensi minimal yang diperlukan
+-   `MAX_REFERENCE_COUNT`: Jumlah referensi maksimal yang diizinkan
+-   `JOURNAL_PROPORTION_THRESHOLD`: Persentase jurnal minimal
+-   `REFERENCE_YEAR_THRESHOLD`: Rentang tahun publikasi yang diterima
+-   `AUTO_CLEANUP_ENABLED`: Aktifkan pembersihan otomatis file lama
+-   `AUTO_CLEANUP_MAX_AGE_HOURS`: Ambang umur untuk pembersihan file
+
+---
+
+### Endpoint API
+
+#### POST /api/validate
+
+Validasi referensi dari file atau input teks.
+
+Request (dengan file):
+```bash
+curl -X POST -F "file=@document.pdf" http://localhost:5000/api/validate
+```
+
+Request (dengan teks):
+```bash
+curl -X POST -d "text=Teks referensi di sini" http://localhost:5000/api/validate
+```
+
+Response:
+```json
+{
+  "validation_status": "passed",
+  "summary": {
+    "total_references": 10,
+    "valid_references": 9,
+    "invalid_references": 1
+  },
+  "detailed_results": [...]
+}
+```
+
+#### GET /api/download_report
+
+Unduh PDF beranotasi dengan hasil validasi.
+
+```bash
+curl http://localhost:5000/api/download_report -o report.pdf
+```
+
+#### GET /api/download_bibtex/<reference_number>
+
+Unduh file BibTeX untuk referensi tertentu.
+
+```bash
+curl http://localhost:5000/api/download_bibtex/1 -o reference.bib
+```
+
+---
+
+### Troubleshooting (Pemecahan Masalah)
+
+**Masalah**: Aplikasi gagal dimulai  
+**Solusi**: Pastikan Python 3.8+ terinstal dan semua dependencies terinstal via `pip install -r requirements.txt`
+
+**Masalah**: Error Gemini API Key  
+**Solusi**: Buat file `.env` dengan `GEMINI_API_KEY` yang valid dan restart aplikasi
+
+**Masalah**: Upload file gagal  
+**Solusi**: Pastikan file berformat PDF atau DOCX dan tidak melebihi 16MB
+
+**Masalah**: Jurnal tidak ditemukan dalam database  
+**Solusi**: Periksa kembali ejaan nama jurnal. Database berisi jurnal ScimagoJR dan Scopus
+
+**Masalah**: Anotasi PDF gagal  
+**Solusi**: Pastikan PDF yang diupload tidak terenkripsi atau corrupt
+
+---
+
+### Dukungan
+
+Untuk masalah, pertanyaan, atau permintaan fitur:
+
+-   Periksa log aplikasi untuk pesan error
+-   Pastikan semua persyaratan sistem terpenuhi
+-   Verifikasi konfigurasi di `config.py`
+-   Hubungi pengembang dengan log error dan langkah-langkah untuk mereproduksi masalah
+
+---
+
+## Developer Notes
+
+Untuk pengembang yang ingin menjalankan dari source atau membangun aplikasi, lihat dokumentasi pengembangan di bawah.
+
+### Running from Source
+
+1. Clone repository:
+```bash
+git clone https://github.com/ArvinSSatria/reference-validator.git
+cd reference-validator
+```
+
+2. Buat virtual environment:
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+3. Install dependencies:
+```powershell
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+4. Persiapkan file data:
+   - Tambahkan API key ke file `.env`
+   - Pastikan file `data/scimagojr 2024.csv` dan `data/scopus 2025.csv` ada
+
+5. Jalankan aplikasi:
+```powershell
+python run.py
+```
+
+---
+
+### Lisensi
+
+Proyek ini dilisensikan di bawah MIT License - lihat file [LICENSE](LICENSE) untuk detail lengkap.
+
+---
+
+### Kontribusi
+
+Kami menerima kontribusi. Silakan buat branch baru untuk fitur atau bug fix Anda:
+
+```bash
+git checkout -b feature/nama-fitur
+git commit -am 'Add new feature'
+git push origin feature/nama-fitur
+```
+
+---
+
+### Kontak & Dukungan
+
+Untuk informasi lebih lanjut atau dukungan:
+
+-   GitHub: https://github.com/ArvinSSatria/reference-validator
+-   Issues: Gunakan GitHub Issues untuk melaporkan bug atau meminta fitur

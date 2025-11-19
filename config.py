@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Set Google API Key untuk kompatibilitas dengan google libraries
+os.environ['GOOGLE_API_KEY'] = os.getenv("GEMINI_API_KEY", "")
+
 class Config:
     # Konfigurasi Flask
     SECRET_KEY = os.environ.get('SECRET_KEY', 'kunci-rahasia-default-yang-aman')

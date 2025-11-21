@@ -28,5 +28,5 @@ class Config:
     
     # Pengaturan Auto-Cleanup
     AUTO_CLEANUP_ENABLED = True  # Set False untuk disable auto-cleanup
-    AUTO_CLEANUP_MAX_AGE_HOURS = 1  # File lebih lama dari ini akan dihapus
+    AUTO_CLEANUP_MAX_AGE_HOURS = 0.0833  # 5 minutes (file lebih lama dari ini akan dihapus)
  

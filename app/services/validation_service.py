@@ -30,12 +30,15 @@ def process_validation_request(request, saved_file_stream=None):
         if not references_list:
             return {"error": "Tidak ada referensi individual yang dapat diidentifikasi oleh AI."}
 
-        # Langkah 3: Validasi jumlah referensi
+        # Langkah 3: Ambil parameter validasi dari request
+        min_ref_count = request.form.get('min_ref_count', Config.MIN_REFERENCE_COUNT, type=int)
+        
+        # Validasi jumlah referensi
         count = len(references_list)
-        count_valid = Config.MIN_REFERENCE_COUNT <= count <= Config.MAX_REFERENCE_COUNT
+        count_valid = min_ref_count <= count <= Config.MAX_REFERENCE_COUNT
         count_message = f"Jumlah referensi ({count}) sudah sesuai standar."
-        if count < Config.MIN_REFERENCE_COUNT:
-            count_message = f"Jumlah referensi ({count}) kurang dari minimum ({Config.MIN_REFERENCE_COUNT})."
+        if count < min_ref_count:
+            count_message = f"Jumlah referensi ({count}) kurang dari minimum ({min_ref_count})."
         elif count > Config.MAX_REFERENCE_COUNT:
             count_message = f"Jumlah referensi ({count}) melebihi maksimum ({Config.MAX_REFERENCE_COUNT})."
         
@@ -66,7 +69,8 @@ def process_validation_request(request, saved_file_stream=None):
             detailed_results,
             count_validation,
             detected_style,  # Gunakan detected_style instead of style
-            journal_percent_threshold
+            journal_percent_threshold,
+            min_ref_count
         )
 
         # Sertakan year_range ke hasil agar PDF annotator dapat menggunakannya
@@ -296,7 +300,8 @@ def _generate_summary_and_recommendations(
     detailed_results,
     count_validation,
     style,
-    journal_percent_threshold
+    journal_percent_threshold,
+    min_ref_count=None
 ):
     total = len(detailed_results)
     valid_count = sum(1 for r in detailed_results if r['status'] == 'valid')
@@ -318,7 +323,8 @@ def _generate_summary_and_recommendations(
         "count_validation": count_validation,
         "distribution_analysis": distribution,
         "style_used": style,
-        "journal_percent_threshold": journal_percent_threshold
+        "journal_percent_threshold": journal_percent_threshold,
+        "min_ref_count": min_ref_count or Config.MIN_REFERENCE_COUNT
     }
     
     recommendations = []

@@ -207,13 +207,6 @@ def _cleanup_session_files():
 
 
 def _cleanup_old_upload_files(max_age_hours=1):
-    """
-    Menghapus file-file di folder uploads yang lebih tua dari max_age_hours.
-    Dipanggil secara otomatis saat ada request validasi baru.
-    
-    Args:
-        max_age_hours: Umur maksimal file dalam jam (default: 1 jam)
-    """
     try:
         upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
         if not os.path.exists(upload_folder):
@@ -237,7 +230,7 @@ def _cleanup_old_upload_files(max_age_hours=1):
                 try:
                     os.remove(filepath)
                     deleted_count += 1
-                    logger.debug(f"🗑️ Auto-deleted old file: {filename} (age: {file_age/3600:.1f}h)")
+                    logger.debug(f"Auto-deleted old file: {filename} (age: {file_age/3600:.1f}h)")
                 except Exception as e:
                     logger.warning(f"Failed to delete old file {filename}: {e}")
         

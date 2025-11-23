@@ -58,8 +58,11 @@ def find_references_section(paragraphs):
                 start_index = i + 1
                 break
 
+    # PERUBAHAN: Jika tidak ditemukan header "Daftar Pustaka", 
+    # anggap SEMUA paragraf sebagai referensi (untuk input manual)
     if start_index == -1:
-        return None, "Bagian 'Daftar Pustaka' tidak ditemukan."
+        logger.info("Header 'Daftar Pustaka' tidak ditemukan. Memproses seluruh teks sebagai referensi.")
+        start_index = 0
 
     # Tangkap paragraf referensi
     captured_paragraphs = []
@@ -96,7 +99,7 @@ def find_references_section(paragraphs):
 
     references_block = "\n".join(captured_paragraphs).strip()
     if not references_block:
-        return None, "Bagian 'Daftar Pustaka' ditemukan, tetapi kosong."
+        return None, "Tidak ada referensi yang dapat diidentifikasi dari teks yang dimasukkan."
 
     return references_block, None
 

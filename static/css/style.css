@@ -124,7 +124,7 @@ body {
 
 .options-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
     gap: 1.5rem;
     align-items: end; /* Membuat label dan input sejajar di bagian bawah */
 }
@@ -143,7 +143,14 @@ input[type="number"]:focus {
     border-color: var(--secondary-color);
 }
 
-/* Membuatnya kembali menjadi satu kolom di layar kecil */
+/* Membuatnya menjadi 2 kolom di layar sedang, 1 kolom di layar kecil */
+@media (max-width: 1024px) {
+    .options-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+}
+
 @media (max-width: 768px) {
     .options-grid {
         grid-template-columns: 1fr;

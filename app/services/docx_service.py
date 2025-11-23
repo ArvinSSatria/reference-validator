@@ -37,11 +37,7 @@ def extract_references_from_docx(file_stream):
 
         REFERENCE_HEADINGS = [
             "daftar pustaka", "daftar referensi", "referensi",
-            "bibliography", "references", "pustaka rujukan"
-        ]
-        STOP_HEADINGS = [
-            "lampiran", "appendix", "biodata",
-            "curriculum vitae", "riwayat hidup"
+            "bibliography", "references", "pustaka rujukan", "reference"
         ]
         
         start_index = -1
@@ -60,33 +56,41 @@ def extract_references_from_docx(file_stream):
         if start_index == -1:
             return None, "Bagian 'Daftar Pustaka' tidak ditemukan atau tidak diikuti konten valid di file DOCX."
 
-        # Logika tangkap dan berhenti cerdas
-        captured_paragraphs = []
-        consecutive_non_ref_count = 0
+        # PENTING: Deteksi AKHIR section references (seperti teman)
+        END_KEYWORDS = [
+            'acknowledgments', 'acknowledgements', 'acknowledgment',
+            'ucapan terima kasih', 'terima kasih',
+            'appendix', 'appendices', 'lampiran',
+            'about the authors', 'about authors', 'author information',
+            'tentang penulis', 'biography', 'biografi',
+            'author contributions', 'kontribusi penulis',
+            'funding', 'pendanaan',
+            'conflict of interest', 'conflicts of interest', 'konflik kepentingan',
+            'competing interests',
+            'data availability', 'ketersediaan data',
+        ]
         
+        end_index = len(paragraphs)  # Default: sampai akhir
+        
+        # Cari section setelah references
         for i in range(start_index, len(paragraphs)):
-            para = paragraphs[i]
-            
-            if any(stop == para.lower() for stop in STOP_HEADINGS):
-                break
-            
-            if is_likely_reference(para):
-                captured_paragraphs.append(para)
-                consecutive_non_ref_count = 0
-            else:
-                if captured_paragraphs:
-                    captured_paragraphs[-1] += " " + para
-                consecutive_non_ref_count += 1
-            
-            if consecutive_non_ref_count >= 5:
-                # Hapus baris-baris non-referensi terakhir yang mungkin tertangkap
-                captured_paragraphs = captured_paragraphs[:-5]
-                break
+            para_lower = paragraphs[i].lower().strip()
+            # Cek apakah ini heading (pendek dan match keyword)
+            if len(para_lower.split()) <= 5:
+                if any(keyword in para_lower for keyword in END_KEYWORDS):
+                    end_index = i
+                    logger.info(f"✂️ Berhenti di section: '{paragraphs[i]}' (baris #{i})")
+                    break
         
-        references_block = "\n".join(captured_paragraphs)
-        if not references_block:
+        # Ambil paragraf dari start sampai end (BUKAN sampai akhir dokumen!)
+        references_block = "\n".join(paragraphs[start_index:end_index])
+        
+        if not references_block.strip():
             return None, "Bagian 'Daftar Pustaka' ditemukan di DOCX, tetapi isinya kosong."
         
+        logger.info(f"✅ Berhasil mengekstrak blok teks referensi dari DOCX")
+        logger.info(f"   📄 Total paragraf: {len(paragraphs[start_index:end_index])}")
+        logger.info(f"   📏 Panjang teks: {len(references_block)} karakter")
         return references_block, None
         
     except Exception as e:

@@ -26,6 +26,48 @@ def normalize_text_for_search(text):
     return text
 
 
+def merge_close_rects(rects, max_distance=10):
+    """
+    Merge rects yang sangat dekat secara horizontal pada baris yang sama.
+    Mengatasi masalah highlight terpecah untuk nama jurnal yang sama.
+    
+    Contoh: "Comput." dan "Linguist." di baris yang sama akan digabung jadi 1 highlight.
+    
+    Args:
+        rects: List of fitz.Rect objects dari page.search_for()
+        max_distance: Jarak horizontal maksimum (dalam PDF points) untuk dianggap satu unit
+    
+    Returns:
+        List of merged fitz.Rect objects
+    """
+    if not rects:
+        return []
+    
+    # Sort berdasarkan posisi: y0 (vertikal) lalu x0 (horizontal)
+    rects = sorted(rects, key=lambda r: (r.y0, r.x0))
+    merged = []
+    current = rects[0]
+    
+    for r in rects[1:]:
+        # Cek apakah di baris yang sama
+        same_line = abs(r.y0 - current.y0) < 3
+        # Cek apakah cukup dekat horizontal
+        close_enough = (r.x0 - current.x1) < max_distance
+        
+        if same_line and close_enough:
+            # Gabungkan rect (union)
+            current = current | r
+        else:
+            # Simpan current dan mulai yang baru
+            merged.append(current)
+            current = r
+    
+    # Jangan lupa tambahkan yang terakhir
+    merged.append(current)
+    
+    return merged
+
+
 def group_rects_by_proximity(rects, max_vertical_distance=15, max_horizontal_gap=50):
     """
     Kelompokkan rects yang merupakan bagian dari satu kemunculan teks yang sama.
@@ -148,18 +190,67 @@ def find_references_section_in_text(full_text):
             author_pattern = r'\b[A-Z][a-z]+,\s*[A-Z]\.|[A-Z]\.\s*[A-Z]\.\s*[A-Z][a-z]+'
             author_count = len(re.findall(author_pattern, sample_text))
             
+            # Cari pola citation patterns (e.g., [1], 1. , (2023), [2023a])
+            citation_matches = re.findall(r'^\s*\[\d+\]|^\s*\d+\.\s+[A-Z]|[\[\(]\d{4}[a-z]?\)', sample_text, re.MULTILINE)
+            citation_count = len(citation_matches)
+            
             # Skor validasi
             validation_score = 0
-            if year_count >= 3:
-                validation_score += 3  # Banyak tahun = kuat
-            if doi_count >= 1:
-                validation_score += 2  # Ada DOI/URL = kuat
-            if author_count >= 2:
-                validation_score += 1  # Ada pola author
+            content_score = 0
+            position_score = 0
+            format_score = 0
             
-            # ✅ ATURAN 3: Pastikan di akhir dokumen (> 50%)
-            if percentage > 50:
-                validation_score += 2  # Bonus jika di akhir dokumen
+            # Content validation (apakah ada ciri-ciri referensi?)
+            if year_count >= 3:
+                content_score += 3  # Banyak tahun = kuat
+            if year_count >= 5:
+                content_score += 2  # Sangat banyak tahun = sangat kuat
+            if doi_count >= 1:
+                content_score += 4  # Ada DOI/URL = sangat kuat
+            if author_count >= 2:
+                content_score += 2  # Ada pola author
+            if citation_count >= 2:
+                content_score += 4  # Ada pola citation numbering = sangat kuat
+            
+            # Position validation (harus di akhir dokumen)
+            if percentage < 40:
+                position_score = -20  # HEAVY PENALTY untuk keyword di awal dokumen
+            elif percentage >= 40 and percentage < 60:
+                position_score = -5  # Penalty sedang untuk keyword di tengah
+            elif percentage >= 60 and percentage < 80:
+                position_score = 5  # Bonus untuk keyword di akhir
+            elif percentage >= 80:
+                position_score = 10  # BONUS BESAR untuk keyword di akhir sekali
+            
+            # Format validation (apakah benar-benar header?)
+            clean_line = line.strip()
+            
+            # Bonus besar untuk ALL CAPS headers
+            if clean_line == clean_line.upper() and len(clean_line) > 1:
+                format_score += 5
+            
+            # Bonus jika didahului blank line (ciri header)
+            if line_num > 0 and not lines[line_num - 1].strip():
+                format_score += 3
+            
+            # Bonus jika diikuti blank line (ciri header)
+            if line_num < total_lines - 1 and not lines[line_num + 1].strip():
+                format_score += 2
+            
+            # CRITICAL: Heavy penalty jika line mengandung teks lain (bukan standalone header)
+            if clean_line.lower() != keyword_found.lower():
+                format_score -= 15  # HEAVY PENALTY - ini bukan header standalone
+            
+            # Penalty jika line dimulai dengan citation pattern (e.g., "[1]", "(a)")
+            if re.match(r'^\s*[\(\[\d]', line):
+                format_score -= 10
+            
+            # Penalty jika ada banyak kata lain di baris yang sama
+            word_count = len(clean_line.split())
+            if word_count > 3:  # "DAFTAR PUSTAKA" = 2 kata, masih OK
+                format_score -= 5
+            
+            validation_score = content_score + position_score + format_score
             
             candidates.append({
                 'line_num': line_num,
@@ -168,6 +259,10 @@ def find_references_section_in_text(full_text):
                 'year_count': year_count,
                 'doi_count': doi_count,
                 'author_count': author_count,
+                'citation_count': citation_count,
+                'content_score': content_score,
+                'position_score': position_score,
+                'format_score': format_score,
                 'validation_score': validation_score
             })
     
@@ -179,10 +274,98 @@ def find_references_section_in_text(full_text):
     # 2. Percentage (descending) - yang paling akhir
     candidates.sort(key=lambda x: (x['validation_score'], x['percentage']), reverse=True)
     
+    # Log semua kandidat untuk debugging
+    logger.info(f"📋 Found {len(candidates)} reference section candidate(s):")
+    for i, cand in enumerate(candidates[:5]):  # Tampilkan top 5
+        logger.info(
+            f"  #{i+1}: Line {cand['line_num']} ({cand['percentage']:.1f}%) - "
+            f"'{cand['keyword']}' | "
+            f"Score: {cand['validation_score']} "
+            f"(content:{cand['content_score']}, pos:{cand['position_score']}, fmt:{cand['format_score']}) | "
+            f"Years:{cand['year_count']}, Citations:{cand['citation_count']}, DOIs:{cand['doi_count']}"
+        )
+    
     # Ambil kandidat terbaik
     best = candidates[0]
     
-    return best['line_num'], best['keyword']
+    logger.info(
+        f"✅ Selected: Line {best['line_num']} ({best['percentage']:.1f}%) - "
+        f"'{best['keyword']}' with score {best['validation_score']}"
+    )
+    
+    # Hitung character index
+    char_index = sum(len(line) + 1 for line in lines[:best['line_num']])
+    
+    return best['line_num'], best['keyword'], char_index
+
+
+def find_end_of_references(text, start_index):
+    """
+    Find the end of references section by looking for common section headers that come after references.
+    
+    Keywords to look for:
+    - ACKNOWLEDGMENTS / ACKNOWLEDGEMENTS / UCAPAN TERIMA KASIH
+    - APPENDIX / APPENDICES / LAMPIRAN
+    - ABOUT AUTHORS / TENTANG PENULIS
+    - AUTHOR CONTRIBUTIONS / KONTRIBUSI PENULIS
+    - FUNDING / PENDANAAN
+    - CONFLICT OF INTEREST / KONFLIK KEPENTINGAN
+    - BIOGRAPHY / BIOGRAFI
+    
+    Returns character index of end section, or -1 if not found
+    """
+    # List of keywords for sections after references
+    end_keywords = [
+        'ACKNOWLEDGMENTS',
+        'ACKNOWLEDGEMENTS',
+        'ACKNOWLEDGMENT',
+        'ACKNOWLEDGEMENT',
+        'UCAPAN TERIMA KASIH',
+        'TERIMA KASIH',
+        'APPENDIX',
+        'APPENDICES',
+        'LAMPIRAN',
+        'ABOUT THE AUTHORS',
+        'ABOUT AUTHORS',
+        'AUTHOR INFORMATION',
+        'TENTANG PENULIS',
+        'AUTHOR CONTRIBUTIONS',
+        'KONTRIBUSI PENULIS',
+        'FUNDING',
+        'PENDANAAN',
+        'CONFLICT OF INTEREST',
+        'CONFLICTS OF INTEREST',
+        'KONFLIK KEPENTINGAN',
+        'COMPETING INTERESTS',
+        'BIOGRAPHY',
+        'BIOGRAFI',
+        'AUTHOR BIOGRAPHY',
+        'AUTHORS BIOGRAPHY',
+    ]
+    
+    search_text = text[start_index:]
+    
+    earliest_index = -1
+    found_keyword = None
+    
+    for keyword in end_keywords:
+        # Case-insensitive search
+        pattern = re.compile(keyword, re.IGNORECASE)
+        match = pattern.search(search_text)
+        
+        if match:
+            absolute_index = start_index + match.start()
+            
+            if earliest_index == -1 or absolute_index < earliest_index:
+                earliest_index = absolute_index
+                found_keyword = keyword
+    
+    if found_keyword:
+        logger.info(f"Found end section keyword: '{found_keyword}' at index {earliest_index}")
+    else:
+        logger.info("No section found after references, using end of document")
+    
+    return earliest_index
 
 
 def annotate_pdf_page(
@@ -213,71 +396,119 @@ def annotate_pdf_page(
     MISSING_RGB = colors['MISSING_RGB']
 
     # BAGIAN 1: DETEKSI HEADING DAN SUMMARY
-    # Cari keyword references di halaman ini
+    # Cari keyword references di halaman ini HANYA jika line_num sudah tervalidasi
     page_text = page.get_text()
     
-    if found_keyword and found_keyword.upper() in page_text.upper():
-        # Cari posisi keyword di halaman
-        page_results_raw = page.search_for(found_keyword)
+    # Hitung halaman mana yang seharusnya mengandung found_line_num
+    if found_keyword and found_line_num >= 0 and not added_references_summary:
+        # Hitung line offset untuk setiap halaman
+        lines = full_pdf_text.splitlines()
         
-        if page_results_raw and not added_references_summary:
-            # Kelompokkan rects untuk keyword (jika terpotong multi-baris)
-            rect_groups = group_rects_by_proximity(page_results_raw, max_vertical_distance=15, max_horizontal_gap=50)
+        # Cari character offset dari found_line_num
+        target_char_offset = sum(len(line) + 1 for line in lines[:found_line_num])
+        
+        # Hitung apakah halaman ini mengandung target_char_offset
+        current_char_offset = 0
+        is_target_page = False
+        
+        # Iterasi semua halaman untuk menemukan halaman yang tepat
+        # (kita tidak bisa iterate di sini karena sudah dalam loop page)
+        # Jadi kita hitung dari full_pdf_text
+        
+        # Alternatif: Cek apakah keyword ada di halaman ini DAN dekat dengan posisi yang diharapkan
+        if found_keyword.upper() in page_text.upper():
+            # Cari posisi keyword di halaman
+            page_results_raw = page.search_for(found_keyword)
             
-            if rect_groups:
-                first_group_rects = rect_groups[0]
+            if page_results_raw:
+                # Hitung persentase halaman ini dalam dokumen
+                # Untuk validasi apakah ini halaman yang tepat
                 
-                # Hitung statistik
-                total = len(detailed_results)
-                journal_count = sum(1 for r in detailed_results if r.get('reference_type') == 'journal')
-                book_count = sum(1 for r in detailed_results if r.get('reference_type') == 'book')
-                conference_count = sum(1 for r in detailed_results if r.get('reference_type') == 'conference')
-                other_count = total - journal_count - book_count - conference_count
+                # Kelompokkan rects untuk keyword (jika terpotong multi-baris)
+                rect_groups = group_rects_by_proximity(page_results_raw, max_vertical_distance=15, max_horizontal_gap=50)
                 
-                # Hitung yang terindeks di ScimagoJR dan Scopus
-                sjr_count = sum(1 for r in detailed_results if r.get('is_indexed_scimago'))
-                scopus_count = sum(1 for r in detailed_results if r.get('is_indexed_scopus'))
-                both_count = sum(1 for r in detailed_results if r.get('is_indexed_scimago') and r.get('is_indexed_scopus'))
-                
-                year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
-                
-                q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
-                for r in detailed_results:
-                    q = r.get('quartile')
-                    if q in q_counts: 
-                        q_counts[q] += 1
-                    elif q: 
-                        q_counts['Not Found'] += 1
+                # Filter: Pilih grup yang paling akhir (terdekat dengan daftar pustaka sebenarnya)
+                if rect_groups:
+                    # Sort berdasarkan posisi vertikal (y0) - ambil yang paling bawah di halaman
+                    rect_groups_sorted = sorted(rect_groups, key=lambda g: g[0].y0, reverse=True)
+                    
+                    # Cek semua kemunculan keyword di halaman ini
+                    for group_idx, group_rects in enumerate(rect_groups_sorted):
+                        # Validasi tambahan: Cek apakah ada konten referensi di bawah keyword ini
+                        keyword_y_position = group_rects[0].y0
+                        
+                        # Ekstrak teks di bawah keyword (100 karakter berikutnya)
+                        words_below = []
+                        words_on_page = page.get_text("words")
+                        for w in words_on_page:
+                            if w[1] > keyword_y_position:  # y0 > keyword position
+                                words_below.append(str(w[4]))
+                            if len(words_below) >= 50:  # Cukup 50 kata
+                                break
+                        
+                        text_below = ' '.join(words_below)
+                        
+                        # Validasi: Cek apakah ada pola referensi di bawah keyword
+                        years_below = len(re.findall(r'\b(19|20)\d{2}\b', text_below))
+                        citations_below = len(re.findall(r'\[\d+\]|\(\d{4}\)', text_below))
+                        
+                        # Jika validasi lolos, gunakan grup ini
+                        if years_below >= 2 or citations_below >= 1:
+                            # Ini kemungkinan besar keyword yang benar!
+                            
+                            # Hitung statistik
+                            total = len(detailed_results)
+                            journal_count = sum(1 for r in detailed_results if r.get('reference_type') == 'journal')
+                            book_count = sum(1 for r in detailed_results if r.get('reference_type') == 'book')
+                            conference_count = sum(1 for r in detailed_results if r.get('reference_type') == 'conference')
+                            other_count = total - journal_count - book_count - conference_count
+                            
+                            # Hitung yang terindeks di ScimagoJR dan Scopus
+                            sjr_count = sum(1 for r in detailed_results if r.get('is_indexed_scimago'))
+                            scopus_count = sum(1 for r in detailed_results if r.get('is_indexed_scopus'))
+                            both_count = sum(1 for r in detailed_results if r.get('is_indexed_scimago') and r.get('is_indexed_scopus'))
+                            
+                            year_approved = sum(1 for r in detailed_results if r.get('validation_details', {}).get('year_recent'))
+                            
+                            q_counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0,'Not Found':0}
+                            for r in detailed_results:
+                                q = r.get('quartile')
+                                if q in q_counts: 
+                                    q_counts[q] += 1
+                                elif q: 
+                                    q_counts['Not Found'] += 1
 
-                summary_content = (
-                    f"Total Referensi: {total}\n"
-                    f"• Jurnal: {journal_count} ({(journal_count/total*100) if total else 0:.1f}%)\n"
-                    f"• Buku: {book_count} ({(book_count/total*100) if total else 0:.1f}%)\n"
-                    f"• Konferensi: {conference_count} ({(conference_count/total*100) if total else 0:.1f}%)\n"
-                    f"• Lainnya: {other_count}\n\n"
-                    f"Terindeks:\n"
-                    f"• ScimagoJR: {sjr_count} ({(sjr_count/total*100) if total else 0:.1f}%)\n"
-                    f"• Scopus: {scopus_count} ({(scopus_count/total*100) if total else 0:.1f}%)\n"
-                    f"• Keduanya: {both_count} ({(both_count/total*100) if total else 0:.1f}%)\n\n"
-                    f"Validitas Tahun (Recent): {year_approved} dari {total}\n"
-                    f"Kuartil SJR:\n"
-                    f"• Q1:{q_counts['Q1']}\n"
-                    f"• Q2:{q_counts['Q2']}\n"
-                    f"• Q3:{q_counts['Q3']}\n"
-                    f"• Q4:{q_counts['Q4']}\n"
-                    f"• Tidak Ditemukan:{q_counts['Not Found']}\n"
-                    f"Dibuat pada {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                
-                # Highlight keyword dengan warna biru
-                highlight = page.add_highlight_annot(first_group_rects)
-                highlight.set_colors(stroke=PATTENS_BLUE, fill=PATTENS_BLUE)
-                highlight.set_info(title="Ringkasan Validasi", content=summary_content)
-                highlight.update()
-                
-                added_references_summary = True
-                start_annotating = True
-                logger.info(f"✅ Summary highlight ditambahkan pada keyword '{found_keyword}' di halaman {page_num + 1}")
+                            summary_content = (
+                                f"Total Referensi: {total}\n"
+                                f"• Jurnal: {journal_count} ({(journal_count/total*100) if total else 0:.1f}%)\n"
+                                f"• Buku: {book_count} ({(book_count/total*100) if total else 0:.1f}%)\n"
+                                f"• Konferensi: {conference_count} ({(conference_count/total*100) if total else 0:.1f}%)\n"
+                                f"• Lainnya: {other_count}\n\n"
+                                f"Terindeks:\n"
+                                f"• ScimagoJR: {sjr_count} ({(sjr_count/total*100) if total else 0:.1f}%)\n"
+                                f"• Scopus: {scopus_count} ({(scopus_count/total*100) if total else 0:.1f}%)\n"
+                                f"• Keduanya: {both_count} ({(both_count/total*100) if total else 0:.1f}%)\n\n"
+                                f"Validitas Tahun (Recent): {year_approved} dari {total}\n"
+                                f"Kuartil SJR:\n"
+                                f"• Q1:{q_counts['Q1']}\n"
+                                f"• Q2:{q_counts['Q2']}\n"
+                                f"• Q3:{q_counts['Q3']}\n"
+                                f"• Q4:{q_counts['Q4']}\n"
+                                f"• Tidak Ditemukan:{q_counts['Not Found']}\n"
+                                f"Dibuat pada {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                            
+                            # Highlight keyword dengan warna biru
+                            highlight = page.add_highlight_annot(group_rects)
+                            highlight.set_colors(stroke=PATTENS_BLUE, fill=PATTENS_BLUE)
+                            highlight.set_info(title="Ringkasan Validasi", content=summary_content)
+                            highlight.update()
+                            
+                            added_references_summary = True
+                            start_annotating = True
+                            logger.info(f"✅ Summary highlight ditambahkan pada keyword '{found_keyword}' di halaman {page_num + 1} (grup #{group_idx+1}, years_below={years_below}, citations_below={citations_below})")
+                            
+                            break  # Keluar dari loop rect_groups setelah menemukan yang tepat
 
     # BAGIAN 2: HIGHLIGHT SEMUA REFERENSI (JOURNAL, BOOK, DLL)
     # Kumpulkan semua kemunculan full_reference_text di halaman ini
@@ -297,6 +528,7 @@ def annotate_pdf_page(
                 
             ref_number = result.get('reference_number')
             journal_name = result.get('parsed_journal', '')
+            raw_ref_text = result.get('raw_reference', '')
             full_ref_text = result.get('full_reference', '')
             ref_type = result.get('reference_type', 'other')
             
@@ -308,34 +540,61 @@ def annotate_pdf_page(
             page_results_raw = []
             search_strategy = None
             
-            # STRATEGI 1: Coba cari teks lengkap dulu (paling akurat)
-            if len(full_ref_text) > 20:
+            # PRIORITAS 1: Coba raw_reference_text dulu (paling akurat untuk PDF)
+            if raw_ref_text and len(raw_ref_text) > 20:
+                page_results_raw = page.search_for(raw_ref_text)
+                if page_results_raw:
+                    search_strategy = "raw_full_text"
+            
+            # PRIORITAS 2: 150 karakter pertama dari raw_reference_text
+            if not page_results_raw and raw_ref_text and len(raw_ref_text) > 150:
+                text_150 = normalize_text_for_search(raw_ref_text[:150])
+                page_results_raw = page.search_for(text_150)
+                if page_results_raw:
+                    search_strategy = "raw_start_150"
+            
+            # PRIORITAS 3: 80 karakter pertama dari raw_reference_text
+            if not page_results_raw and raw_ref_text and len(raw_ref_text) > 80:
+                text_80 = normalize_text_for_search(raw_ref_text[:80])
+                page_results_raw = page.search_for(text_80)
+                if page_results_raw:
+                    search_strategy = "raw_start_80"
+            
+            # PRIORITAS 4: 40 karakter pertama dari raw_reference_text
+            if not page_results_raw and raw_ref_text and len(raw_ref_text) > 40:
+                text_40 = normalize_text_for_search(raw_ref_text[:40])
+                page_results_raw = page.search_for(text_40)
+                if page_results_raw:
+                    search_strategy = "raw_start_40"
+            
+            # FALLBACK 1: Coba full_reference (teks bersih) jika raw_reference gagal
+            if not page_results_raw and len(full_ref_text) > 20:
                 page_results_raw = page.search_for(full_ref_text)
                 if page_results_raw:
                     search_strategy = "full_text"
             
-            # STRATEGI 2: 150 karakter pertama (normalized)
+            # FALLBACK 2: 150 karakter pertama (normalized) dari full_reference
             if not page_results_raw and len(full_ref_text) > 150:
                 text_150 = normalize_text_for_search(full_ref_text[:150])
                 page_results_raw = page.search_for(text_150)
                 if page_results_raw:
                     search_strategy = "start_150"
             
-            # STRATEGI 3: 80 karakter pertama (normalized)
+            # FALLBACK 3: 80 karakter pertama (normalized)
             if not page_results_raw and len(full_ref_text) > 80:
                 text_80 = normalize_text_for_search(full_ref_text[:80])
                 page_results_raw = page.search_for(text_80)
                 if page_results_raw:
                     search_strategy = "start_80"
             
-            # STRATEGI 4: 40 karakter pertama (normalized)
+            # FALLBACK 4: 40 karakter pertama (normalized)
             if not page_results_raw and len(full_ref_text) > 40:
                 text_40 = normalize_text_for_search(full_ref_text[:40])
                 page_results_raw = page.search_for(text_40)
                 if page_results_raw:
                     search_strategy = "start_40"
             
-            # STRATEGI 5: 30 karakter pertama (normalized)
+            # FALLBACK 5: 30 karakter pertama (normalized)
             if not page_results_raw and len(full_ref_text) > 30:
                 text_30 = normalize_text_for_search(full_ref_text[:30])
                 page_results_raw = page.search_for(text_30)
@@ -350,8 +609,12 @@ def annotate_pdf_page(
                     logger.info(f"   Teks dicari (50 char): '{preview}...'")
                 continue
             
+            # OPTIMASI: Merge rects yang sangat dekat di baris yang sama
+            # Untuk mengatasi highlight terpecah (misal: "Comput." dan "Linguist." jadi 1 box)
+            page_results_merged = merge_close_rects(page_results_raw, max_distance=10)
+            
             # Kelompokkan rects yang merupakan satu kemunculan yang sama
-            rect_groups = group_rects_by_proximity(page_results_raw, max_vertical_distance=15, max_horizontal_gap=50)
+            rect_groups = group_rects_by_proximity(page_results_merged, max_vertical_distance=15, max_horizontal_gap=50)
             
             # Untuk setiap grup (satu kemunculan), simpan untuk diproses
             if ref_number not in all_search_results:
@@ -540,11 +803,15 @@ def annotate_pdf_page(
             
             strategy = target.get('strategy', 'unknown')
             strategy_label = {
-                'full_text': '✓ Teks lengkap',
-                'start_150': '⚠️ 150 char awal',
-                'start_80': '⚠️ 80 char awal',
-                'start_40': '⚠️ 40 char awal',
-                'start_30': '⚠️ 30 char awal'
+                'raw_full_text': '✓ Raw Full',
+                'raw_start_150': '⚠️ Raw 150 Chars',
+                'raw_start_80': '⚠️ Raw 80 Chars',
+                'raw_start_40': '⚠️ Raw 40 Chars',
+                'full_text': '✓ Cleaned Full',
+                'start_150': '⚠️ Cleaned 150 Chars',
+                'start_80': '⚠️ Cleaned 80 Chars',
+                'start_40': '⚠️ Cleaned 40 Chars',
+                'start_30': '⚠️ Cleaned 30 Chars'
             }.get(strategy, '❓ Unknown')
             
             # Emoji berdasarkan status

@@ -264,9 +264,13 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
         else:
             final_feedback += f" Status: INVALID (Sumber ini adalah '{ref_type}', namun tidak ditemukan di database ScimagoJR atau Scopus)."
 
+        # Ambil raw_reference_text dari AI response (fallback ke full_reference jika tidak ada)
+        raw_ref_text = result_json.get('raw_reference_text', full_ref_text)
+        
         detailed_results.append({
             "reference_number": ref_num,
             "reference_text": ref_text,
+            "raw_reference": raw_ref_text,  # NEW: Teks asli dengan line breaks
             "full_reference": full_ref_text,
             "status": "valid" if is_overall_valid else "invalid",
             "reference_type": ref_type,

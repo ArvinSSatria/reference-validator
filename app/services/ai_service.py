@@ -51,53 +51,39 @@ def get_generative_model():
 
 
 def split_references_with_ai(references_block):
+    """Split references using AI with simple, effective prompt like friend's system."""
     try:
         model = get_generative_model()
         
+        # Simple prompt that works well - based on friend's approach
         splitter_prompt = f"""
-            Anda adalah AI ahli parsing daftar pustaka.
+From the raw, fragmented text below, first mentally clean it up by combining broken lines into complete references. Then, output each complete reference as one element in a JSON array.
 
-            TUGAS:
-            Pisahkan blok teks daftar pustaka berikut menjadi entri-entri referensi individual.
+Instructions:
+1. Clean & Parse: The input text is messy. Combine lines that belong to the same reference.
+2. One reference = one array element, even if it spans multiple lines in the input.
+3. Keep all original text content, just combine multi-line references into single strings.
+4. Output: Return ONLY a JSON array of strings. Do not include any other text or explanations.
 
-            ATURAN:
-            1. Satu referensi = satu elemen array, meskipun referensi itu multi-line
-            2. Jaga semua teks asli (jangan ubah/edit)
-            3. Nomor urut (1., 2., [1], dll) adalah penanda awal referensi baru
-            4. Referensi minimal harus ada: Penulis + Tahun + Judul
+Raw Extracted Text:
+{references_block}
 
-            EDGE CASES:
-            - Referensi dengan DOI/URL panjang → tetap satu referensi
-            - Referensi multi-line → gabungkan menjadi satu string
-            - Referensi tanpa nomor → pisahkan dengan indent atau line break
-
-            CONTOH INPUT:
-            1. Smith, J. (2023). Title here. Journal, 10(2), 1-10.
-            2. Brown, A. (2022). Long title spanning
-            multiple lines here. Another Journal, 5, 100-120.
-
-            CONTOH OUTPUT:
-            ["Smith, J. (2023). Title here. Journal, 10(2), 1-10.", "Brown, A. (2022). Long title spanning multiple lines here. Another Journal, 5, 100-120."]
-
-            Teks untuk dipisahkan:
-            ---
-            {references_block}
-            ---
-
-            OUTPUT: Array JSON dari string.
+JSON Array Output:
         """
         
-        logger.info("Meminta AI untuk memisahkan referensi dari blok teks...")
+        logger.info("🔄 Meminta AI untuk memisahkan referensi...")
         response = model.generate_content(splitter_prompt)
         
-        # Ekstraksi JSON yang lebih tangguh
-        json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
-        if not json_match:
-            logger.error(f"AI gagal memisahkan referensi. Respons mentah: {response.text}")
-            return None, "AI gagal memisahkan referensi ke dalam format JSON array."
+        # Extract JSON
+        json_text = response.text.strip()
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in json_text:
+            json_text = json_text.split("```")[1].split("```")[0].strip()
         
-        references_list = json.loads(json_match.group(0))
-        logger.info(f"AI berhasil memisahkan menjadi {len(references_list)} referensi.")
+        references_list = json.loads(json_text)
+        total_extracted = len(references_list)
+        logger.info(f"✅ Successfully extracted {total_extracted} references")
         
         if not references_list:
             return None, "Tidak ada referensi individual yang dapat diidentifikasi oleh AI."
@@ -289,7 +275,8 @@ def _construct_batch_gemini_prompt(references_list, style, year, year_threshold,
         Kembalikan sebagai ARRAY JSON TUNGGAL dengan struktur berikut:
         {{
             "reference_number": <int>,
-            "full_reference": "<TEKS REFERENSI LENGKAP SEPERTI YANG DIBERIKAN>",
+            "raw_reference_text": "<TEKS ASLI DENGAN LINE BREAKS SEPERTI DI INPUT, untuk matching PDF>",
+            "full_reference": "<TEKS REFERENSI LENGKAP DIBERSIHKAN (tanpa line breaks berlebih)>",
             "parsed_authors": ["Penulis 1"],
             "parsed_year": <int>,
             "parsed_title": "<string>",
@@ -307,12 +294,15 @@ def _construct_batch_gemini_prompt(references_list, style, year, year_threshold,
         }}
 
         PENTING: 
-        - `full_reference` harus berisi TEKS REFERENSI ASLI LENGKAP persis seperti yang diberikan (untuk keperluan highlighting di PDF)
+        - `raw_reference_text`: TEKS ASLI dengan line breaks PERSIS seperti di input (untuk matching PDF yang akurat)
+        - `full_reference`: TEKS DIBERSIHKAN tanpa line breaks berlebih (untuk display/readability)
         - `parsed_journal` harus HANYA nama jurnal/sumber, misalnya "Nature", "PLOS ONE", "Journal of Machine Learning Research"
         - JANGAN sertakan volume, issue, halaman, atau DOI dalam `parsed_journal`
         - `parsed_volume`: Extract HANYA angka volume (e.g., "5", "156"), null jika tidak ada
         - `parsed_issue`: Extract HANYA angka issue/nomor (e.g., "3", "12"), null jika tidak ada
         - `parsed_pages`: Extract range halaman (e.g., "245-260", "1-15", "e12345"), null jika tidak ada
+        - Contoh raw_reference_text: "Smith, J. (2020). Artificial Intelligence in\nEducation. Journal of Educational Technology, 15(2), 123-145."
+        - Contoh full_reference: "Smith, J. (2020). Artificial Intelligence in Education. Journal of Educational Technology, 15(2), 123-145."
         - Contoh BENAR: "parsed_journal": "International Journal of Electronic Commerce", "parsed_volume": "2", "parsed_issue": "8", "parsed_pages": "8-22"
         - Contoh SALAH: "parsed_journal": "International Journal of Electronic Commerce, Vol. 2(8), 8-22."
     """

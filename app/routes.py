@@ -75,6 +75,10 @@ def validate_references_api():
         # Simpan path file hasil di sesi (untuk text input dan file input)
         session['results_filepath'] = results_filepath
         session['session_id'] = session_id
+        
+        # Tambahkan session_id dan metadata ke response untuk client
+        result['session_id'] = session_id
+        result['has_file'] = original_filepath is not None
             
         logger.info(f"Validation successful for {result['summary']['total_references']} references.")
         return jsonify(result)
@@ -87,8 +91,39 @@ def validate_references_api():
 @app.route('/api/download_report', methods=['GET'])
 def download_report_api():
     try:
-        original_filepath = session.get('original_filepath')
-        results_filepath = session.get('results_filepath')
+        # Coba ambil session_id dari query parameter dulu, fallback ke session
+        session_id = request.args.get('session_id')
+        
+        logger.info(f"Download report request - session_id: {session_id}")
+        
+        if session_id:
+            # Mode query parameter (untuk Electron compatibility)
+            upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+            results_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_results.json"))
+            
+            # Validasi file results existence
+            if not os.path.exists(results_filepath):
+                logger.error(f"Results file not found: {results_filepath}")
+                return jsonify({"error": "Sesi tidak valid atau file sudah terhapus. Lakukan validasi ulang."}), 400
+            
+            # Cari file original dengan pattern matching (bisa .pdf, .docx, atau ekstensi lain)
+            original_filepath = None
+            for ext in ['.pdf', '.docx', '.PDF', '.DOCX']:
+                potential_path = os.path.abspath(os.path.join(upload_folder, f"{session_id}_original{ext}"))
+                if os.path.exists(potential_path):
+                    original_filepath = potential_path
+                    logger.info(f"Found original file: {original_filepath}")
+                    break
+            
+            if not original_filepath:
+                logger.error(f"Original file not found for session_id: {session_id}")
+                return jsonify({
+                    "error": "File asli tidak ditemukan. Download PDF hanya tersedia untuk file upload (PDF/DOCX)."
+                }), 400
+        else:
+            # Mode session cookie (backward compatibility untuk web)
+            original_filepath = session.get('original_filepath')
+            results_filepath = session.get('results_filepath')
         
         # Cek apakah results ada (untuk text input, hanya results_filepath yang ada)
         if not results_filepath:
@@ -148,7 +183,16 @@ def download_bibtex_api(ref_number):
         ref_number: Nomor referensi (1-indexed)
     """
     try:
-        results_filepath = session.get('results_filepath')
+        # Coba ambil session_id dari query parameter dulu, fallback ke session
+        session_id = request.args.get('session_id')
+        
+        if session_id:
+            # Mode query parameter (untuk Electron compatibility)
+            upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+            results_filepath = os.path.join(upload_folder, f"{session_id}_results.json")
+        else:
+            # Mode session cookie (backward compatibility untuk web)
+            results_filepath = session.get('results_filepath')
         
         if not results_filepath or not os.path.exists(results_filepath):
             return jsonify({"error": "Sesi tidak valid. Lakukan validasi ulang."}), 400

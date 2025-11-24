@@ -55,3 +55,8 @@ dist/
 # OS
 Thumbs.db
 desktop.ini
+
+# Electron
+electron/node_modules/
+electron/dist/
+electron/package-lock.json

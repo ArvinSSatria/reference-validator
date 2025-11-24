@@ -1,5 +1,6 @@
 let currentResults = [];
 let currentFilter = 'invalid';
+let currentSessionId = null; // Store session_id untuk download
 
 const form = document.getElementById('referenceForm');
 const fileInput = document.getElementById('fileInput');
@@ -100,6 +101,7 @@ async function validateReferences() {
         await new Promise(resolve => setTimeout(resolve, 500));
 
         currentResults = data.detailed_results || [];
+        currentSessionId = data.session_id || null; // Simpan session_id
         displayResults(data);
 
     } catch (error) {
@@ -205,7 +207,7 @@ function displayResults(data) {
     const downloadBtn = document.getElementById('downloadBtn');
     const downloadBibtexAllBtn = document.getElementById('downloadBibtexAllBtn');
     
-    if (fileInput.files.length > 0) {
+    if (data.has_file) {
         downloadBtn.disabled = false;
         downloadBtn.style.display = 'inline-block';
     } else {
@@ -409,8 +411,13 @@ textInput.addEventListener('input', () => {
 
 const downloadBtn = document.getElementById('downloadBtn');
 downloadBtn.addEventListener('click', () => {
-    // Cukup buka URL endpoint GET di tab baru
-    window.open('/api/download_report', '_blank');
+    // Kirim session_id sebagai query parameter
+    if (currentSessionId) {
+        window.open(`/api/download_report?session_id=${currentSessionId}`, '_blank');
+    } else {
+        // Fallback ke cookie-based session (backward compatibility)
+        window.open('/api/download_report', '_blank');
+    }
 });
 
 const downloadBibtexAllBtn = document.getElementById('downloadBibtexAllBtn');
@@ -420,7 +427,12 @@ downloadBibtexAllBtn.addEventListener('click', () => {
 
 // Function untuk download BibTeX
 function downloadBibTeX(refNumber) {
-    window.open(`/api/download_bibtex/${refNumber}`, '_blank');
+    if (currentSessionId) {
+        window.open(`/api/download_bibtex/${refNumber}?session_id=${currentSessionId}`, '_blank');
+    } else {
+        // Fallback ke cookie-based session (backward compatibility)
+        window.open(`/api/download_bibtex/${refNumber}`, '_blank');
+    }
 }
 
 // Function untuk download semua BibTeX sekaligus

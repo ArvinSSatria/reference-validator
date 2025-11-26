@@ -120,8 +120,8 @@ def validate_references_api():
         # Auto-cleanup file lama (> 1 jam) dari folder uploads
         if Config.AUTO_CLEANUP_ENABLED:
             _cleanup_old_upload_files(max_age_hours=Config.AUTO_CLEANUP_MAX_AGE_HOURS)
-            # Cleanup pdf_generation_status dict juga
-            _cleanup_pdf_status_dict(max_age_hours=2)
+            # Cleanup pdf_generation_status dict juga (5 menit)
+            _cleanup_pdf_status_dict(max_age_hours=5/60)
 
         # Buat ID unik untuk sesi validasi ini
         session_id = str(uuid.uuid4())

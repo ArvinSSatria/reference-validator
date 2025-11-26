@@ -94,8 +94,20 @@ def extract_references_from_docx(file_stream):
         return references_block, None
         
     except Exception as e:
-        logger.error(f"Gagal memproses file .docx: {e}", exc_info=True)
-        return None, f"Gagal memproses file .docx: {e}"
+        logger.error(f"Gagal memproses file DOCX: {e}", exc_info=True)
+        # User-friendly error message
+        error_msg = "Maaf, terjadi kesalahan saat memproses file DOCX Anda. "
+        
+        if "password" in str(e).lower() or "encrypted" in str(e).lower():
+            error_msg += "File DOCX ter-enkripsi atau dilindungi password. Mohon gunakan file yang tidak terproteksi."
+        elif "corrupt" in str(e).lower() or "not a zip file" in str(e).lower():
+            error_msg += "File DOCX tampaknya rusak atau tidak valid. Mohon coba file lain."
+        elif "memory" in str(e).lower():
+            error_msg += "File DOCX terlalu besar untuk diproses. Mohon gunakan file yang lebih kecil."
+        else:
+            error_msg += "Pastikan file DOCX Anda valid dan dapat dibuka di Microsoft Word."
+        
+        return None, error_msg
 
 
 def convert_docx_to_pdf(docx_path):

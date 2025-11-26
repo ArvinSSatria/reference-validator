@@ -235,7 +235,7 @@ def download_bibtex_api(ref_number):
     
     except Exception as e:
         logger.error(f"Error downloading BibTeX for ref #{ref_number}: {e}", exc_info=True)
-        return jsonify({"error": f"Gagal mengunduh BibTeX: {e}"}), 500
+        return jsonify({"error": "Maaf, terjadi kesalahan saat mengunduh file BibTeX. Mohon coba lagi."}), 500
 
 def _cleanup_session_files():
     """Menghapus file-file sementara dari sesi sebelumnya."""

@@ -92,7 +92,19 @@ JSON Array Output:
         
     except Exception as e:
         logger.error(f"Error saat split references dengan AI: {e}", exc_info=True)
-        return None, f"Gagal memisahkan referensi: {e}"
+        # User-friendly error message
+        error_msg = "Maaf, terjadi kesalahan saat memisahkan referensi dengan AI. "
+        
+        if "quota" in str(e).lower() or "limit" in str(e).lower():
+            error_msg += "Kuota API Gemini AI telah habis. Mohon coba lagi nanti atau hubungi administrator."
+        elif "api" in str(e).lower() or "key" in str(e).lower():
+            error_msg += "Konfigurasi API AI tidak valid. Mohon hubungi administrator."
+        elif "timeout" in str(e).lower():
+            error_msg += "Koneksi ke AI timeout. Mohon coba lagi."
+        else:
+            error_msg += "Mohon coba lagi atau hubungi administrator jika masalah berlanjut."
+        
+        return None, error_msg
 
 
 def analyze_references_with_ai(references_list, style, year_range):
@@ -119,14 +131,28 @@ def analyze_references_with_ai(references_list, style, year_range):
         analysis_json_match = re.search(r'\[.*\]', analysis_response.text, re.DOTALL)
         if not analysis_json_match:
             logger.error(f"AI gagal menganalisis referensi. Respons mentah: {analysis_response.text}")
-            return None, detected_style, "AI gagal menganalisis referensi ke dalam format JSON array."
+            return None, detected_style, "Maaf, AI tidak dapat menganalisis referensi dengan format yang sesuai. Mohon coba lagi atau periksa format referensi Anda."
         
         batch_results_json = json.loads(analysis_json_match.group(0))
         return batch_results_json, detected_style, None
         
     except Exception as e:
         logger.error(f"Error saat analisis AI: {e}", exc_info=True)
-        return None, style, f"Gagal menganalisis referensi: {e}"
+        # User-friendly error message
+        error_msg = "Maaf, terjadi kesalahan saat menganalisis referensi dengan AI. "
+        
+        if "quota" in str(e).lower() or "limit" in str(e).lower():
+            error_msg += "Kuota API Gemini AI telah habis. Mohon coba lagi nanti atau hubungi administrator."
+        elif "api" in str(e).lower() or "key" in str(e).lower():
+            error_msg += "Konfigurasi API AI tidak valid. Mohon hubungi administrator."
+        elif "timeout" in str(e).lower():
+            error_msg += "Koneksi ke AI timeout. Mohon coba lagi."
+        elif "json" in str(e).lower():
+            error_msg += "Format respons AI tidak valid. Mohon coba lagi."
+        else:
+            error_msg += "Mohon coba lagi atau hubungi administrator jika masalah berlanjut."
+        
+        return None, style, error_msg
 
 
 def _detect_citation_style(references_list, model):

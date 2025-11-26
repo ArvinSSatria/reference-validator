@@ -43,7 +43,7 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
     if error:
         return {"error": error}
     if not references_block:
-        return {"error": "Tidak ada konten referensi yang dapat diproses."}
+        return {"error": "Maaf, tidak ada konten referensi yang dapat ditemukan dalam file atau teks yang Anda berikan. Mohon pastikan dokumen berisi bagian daftar pustaka/referensi."}
     
     emit_progress('extract', 'Berhasil mengekstrak teks referensi', 20)
     
@@ -57,7 +57,7 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
             return {"error": error}
         
         if not references_list:
-            return {"error": "Tidak ada referensi individual yang dapat diidentifikasi oleh AI."}
+            return {"error": "Maaf, AI tidak dapat mengidentifikasi entri referensi individual dari teks yang diberikan. Mohon pastikan format daftar pustaka Anda jelas dan dapat dibaca."}
 
         total_refs = len(references_list)
         emit_progress('split', f'Berhasil memisahkan {total_refs} referensi', 40)
@@ -131,7 +131,19 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
 
     except Exception as e:
         logger.error(f"Error kritis saat pemrosesan AI: {e}", exc_info=True)
-        return {"error": f"Terjadi kesalahan saat pemrosesan AI. Detail: {e}"}
+        # User-friendly error message
+        error_msg = "Maaf, terjadi kesalahan saat memproses validasi referensi. "
+        
+        if "timeout" in str(e).lower():
+            error_msg += "Koneksi timeout. Mohon coba lagi."
+        elif "memory" in str(e).lower() or "resource" in str(e).lower():
+            error_msg += "Dokumen terlalu besar untuk diproses. Mohon coba dengan dokumen yang lebih kecil."
+        elif "api" in str(e).lower() or "quota" in str(e).lower():
+            error_msg += "Layanan AI sedang bermasalah. Mohon coba lagi nanti atau hubungi administrator."
+        else:
+            error_msg += "Mohon coba lagi atau hubungi administrator jika masalah berlanjut."
+        
+        return {"error": error_msg}
 
 
 def _get_references_from_request(request, file_stream=None):
@@ -142,7 +154,7 @@ def _get_references_from_request(request, file_stream=None):
         
         # Validasi ekstensi
         if not ('.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS):
-            return None, "Format file tidak didukung."
+            return None, f"Maaf, format file '{filename.rsplit('.', 1)[1].upper() if '.' in filename else 'unknown'}' tidak didukung. Mohon gunakan file PDF atau DOCX."
 
         # Panggil fungsi yang sesuai berdasarkan NAMA FILE
         if filename.lower().endswith('.docx'):
@@ -155,7 +167,7 @@ def _get_references_from_request(request, file_stream=None):
         paragraphs = [p.strip() for p in full_text.split('\n') if p.strip()]
         return find_references_section(paragraphs)
         
-    return None, "Tidak ada input yang diberikan."
+    return None, "Maaf, tidak ada file atau teks yang diberikan. Mohon pilih file PDF/DOCX atau masukkan teks referensi secara manual."
 
 
 def _process_ai_response(batch_results_json, references_list, original_style, detected_style):

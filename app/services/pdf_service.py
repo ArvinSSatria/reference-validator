@@ -52,8 +52,20 @@ def extract_references_from_pdf(file_stream):
         return references_block, None
         
     except Exception as e:
-        logger.error(f"Gagal memproses file .pdf: {e}", exc_info=True)
-        return None, f"Gagal memproses file .pdf: {e}"
+        logger.error(f"Gagal memproses file PDF: {e}", exc_info=True)
+        # User-friendly error message
+        error_msg = "Maaf, terjadi kesalahan saat memproses file PDF Anda. "
+        
+        if "password" in str(e).lower() or "encrypted" in str(e).lower():
+            error_msg += "File PDF ter-enkripsi atau dilindungi password. Mohon gunakan file yang tidak terproteksi."
+        elif "corrupt" in str(e).lower() or "damaged" in str(e).lower():
+            error_msg += "File PDF tampaknya rusak atau tidak valid. Mohon coba file lain."
+        elif "memory" in str(e).lower():
+            error_msg += "File PDF terlalu besar untuk diproses. Mohon gunakan file yang lebih kecil."
+        else:
+            error_msg += "Pastikan file PDF Anda valid dan tidak rusak."
+        
+        return None, error_msg
 
 
 def create_annotated_pdf(original_filepath, validation_results):

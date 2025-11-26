@@ -45,10 +45,11 @@
     ],
     "win": {
       "target": [
-        "nsis",
         "portable"
       ],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.png",
+      "sign": null,
+      "verifyUpdateCodeSignature": false
     },
     "mac": {
       "target": [

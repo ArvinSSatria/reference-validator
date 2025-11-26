@@ -2,6 +2,7 @@ import os
 import io
 import json
 import time
+import threading
 from datetime import datetime, timedelta
 from flask import render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
@@ -11,6 +12,102 @@ from app.services.validation_service import process_validation_request
 from app.services.pdf_service import create_annotated_pdf
 from app.services.docx_service import convert_docx_to_pdf
 from config import Config
+
+# Global dict untuk track status PDF generation
+# Format: {session_id: {'status': 'processing'|'ready'|'error', 'filepath': '...', 'error_msg': '...'}}
+pdf_generation_status = {}
+
+def _generate_pdf_background(session_id, results_filepath, original_filepath, input_filename):
+    """
+    Generate PDF di background thread setelah validasi selesai.
+    Update status ke pdf_generation_status dict.
+    """
+    try:
+        logger.info(f"[Background PDF] Starting generation for session {session_id}")
+        pdf_generation_status[session_id] = {'status': 'processing', 'filepath': None, 'error_msg': None}
+        
+        # Emit progress via SocketIO
+        socketio.emit('pdf_generation_progress', {
+            'status': 'processing',
+            'message': 'Sedang menyiapkan PDF beranotasi...',
+            'session_id': session_id
+        })
+        
+        # Load hasil validasi
+        with open(results_filepath, 'r', encoding='utf-8') as f:
+            result = json.load(f)
+        
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+        pdf_filepath = None
+        
+        # Buat annotated PDF jika ada file asli
+        if original_filepath and os.path.exists(original_filepath):
+            if input_filename.lower().endswith('.docx'):
+                # Convert DOCX to PDF dulu
+                base_pdf_stream, error = convert_docx_to_pdf(original_filepath)
+                if error:
+                    raise Exception(error)
+                
+                # Annotate PDF
+                annotated_pdf_stream, error = create_annotated_pdf(
+                    base_pdf_stream,
+                    result.get('detailed_results', []),
+                    result.get('year_range', 10)
+                )
+                if error:
+                    raise Exception(error)
+                
+                # Save to file
+                pdf_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_annotated.pdf"))
+                with open(pdf_filepath, 'wb') as f:
+                    f.write(annotated_pdf_stream.getvalue())
+                    
+            elif input_filename.lower().endswith('.pdf'):
+                # Direct PDF annotation
+                annotated_pdf_stream, error = create_annotated_pdf(
+                    original_filepath,
+                    result.get('detailed_results', []),
+                    result.get('year_range', 10)
+                )
+                if error:
+                    raise Exception(error)
+                
+                # Save to file
+                pdf_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_annotated.pdf"))
+                with open(pdf_filepath, 'wb') as f:
+                    f.write(annotated_pdf_stream.getvalue())
+        
+        # Update status ke ready
+        pdf_generation_status[session_id] = {
+            'status': 'ready',
+            'filepath': pdf_filepath,
+            'error_msg': None
+        }
+        
+        # Emit success via SocketIO
+        socketio.emit('pdf_generation_progress', {
+            'status': 'ready',
+            'message': 'PDF beranotasi siap diunduh!',
+            'session_id': session_id
+        })
+        
+        logger.info(f"[Background PDF] Generation completed for session {session_id}")
+        
+    except Exception as e:
+        logger.error(f"[Background PDF] Error generating PDF for session {session_id}: {e}", exc_info=True)
+        pdf_generation_status[session_id] = {
+            'status': 'error',
+            'filepath': None,
+            'error_msg': str(e)
+        }
+        
+        # Emit error via SocketIO
+        socketio.emit('pdf_generation_progress', {
+            'status': 'error',
+            'message': 'Gagal menyiapkan PDF. Download akan dibuat saat Anda klik tombol.',
+            'session_id': session_id
+        })
+
 
 @app.route('/')
 def index():
@@ -79,6 +176,19 @@ def validate_references_api():
         # Tambahkan session_id dan metadata ke response untuk client
         result['session_id'] = session_id
         result['has_file'] = original_filepath is not None
+        
+        # HYBRID: Start background PDF generation jika ada file
+        if original_filepath and os.path.exists(original_filepath):
+            background_thread = threading.Thread(
+                target=_generate_pdf_background,
+                args=(session_id, results_filepath, original_filepath, input_filename)
+            )
+            background_thread.daemon = True
+            background_thread.start()
+            logger.info(f"[Background PDF] Thread started for session {session_id}")
+            result['pdf_status'] = 'processing'  # Info untuk frontend
+        else:
+            result['pdf_status'] = 'not_available'  # Text input tidak ada PDF
             
         logger.info(f"Validation successful for {result['summary']['total_references']} references.")
         return jsonify(result)
@@ -140,38 +250,102 @@ def download_report_api():
         with open(results_filepath, 'r', encoding='utf-8') as f:
             validation_results = json.load(f)
 
-        pdf_to_annotate_path = original_filepath
-        is_temp_pdf = False
+        # HYBRID: Check apakah PDF sudah di-generate di background
+        pdf_ready = False
+        annotated_pdf_path = None
+        
+        if session_id and session_id in pdf_generation_status:
+            status_info = pdf_generation_status[session_id]
+            if status_info['status'] == 'ready' and status_info['filepath'] and os.path.exists(status_info['filepath']):
+                # PDF sudah ready dari background generation
+                annotated_pdf_path = status_info['filepath']
+                pdf_ready = True
+                logger.info(f"[Download] Using pre-generated PDF from background for session {session_id}")
+        
+        # Jika PDF belum ready, generate on-the-fly (fallback)
+        if not pdf_ready:
+            logger.info(f"[Download] Generating PDF on-the-fly for session {session_id or 'legacy'}")
+            pdf_to_annotate_path = original_filepath
+            is_temp_pdf = False
 
-        if original_filepath.lower().endswith('.docx'):
-            pdf_path, error = convert_docx_to_pdf(original_filepath)
+            if original_filepath.lower().endswith('.docx'):
+                pdf_path, error = convert_docx_to_pdf(original_filepath)
+                if error: return jsonify({"error": error}), 500
+                pdf_to_annotate_path = pdf_path
+                is_temp_pdf = True
+
+            annotated_pdf_stream, error = create_annotated_pdf(
+                pdf_to_annotate_path, 
+                validation_results.get('detailed_results', []),
+                validation_results.get('year_range', 10)
+            )
+            
+            if is_temp_pdf and os.path.exists(pdf_to_annotate_path):
+                os.remove(pdf_to_annotate_path)
+            
             if error: return jsonify({"error": error}), 500
-            pdf_to_annotate_path = pdf_path
-            is_temp_pdf = True
 
-        annotated_pdf_bytes, error = create_annotated_pdf(
-            pdf_to_annotate_path, 
-            validation_results
-        )
-        
-        if is_temp_pdf and os.path.exists(pdf_to_annotate_path):
-            os.remove(pdf_to_annotate_path)
-        
-        if error: return jsonify({"error": error}), 500
+            base_name, _ = os.path.splitext(os.path.basename(original_filepath))
+            download_filename = f"annotated_{base_name}.pdf"
 
-        base_name, _ = os.path.splitext(os.path.basename(original_filepath))
-        download_filename = f"annotated_{base_name}.pdf"
+            return send_file(
+                annotated_pdf_stream,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=download_filename
+            )
+        else:
+            # Send pre-generated PDF file
+            base_name, _ = os.path.splitext(os.path.basename(original_filepath))
+            download_filename = f"annotated_{base_name}.pdf"
 
-        return send_file(
-            io.BytesIO(annotated_pdf_bytes),
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=download_filename
-        )
+            return send_file(
+                annotated_pdf_path,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=download_filename
+            )
 
     except Exception as e:
         logger.critical(f"Unhandled exception in /api/download_report: {e}", exc_info=True)
         return jsonify({"error": "Gagal membuat laporan PDF karena kesalahan server."}), 500
+
+
+@app.route('/api/pdf_status', methods=['GET'])
+def check_pdf_status():
+    """
+    Check status PDF generation di background.
+    Returns: {'status': 'processing'|'ready'|'error'|'not_found', 'message': '...'}
+    """
+    try:
+        session_id = request.args.get('session_id')
+        if not session_id:
+            return jsonify({"error": "session_id diperlukan"}), 400
+        
+        if session_id not in pdf_generation_status:
+            return jsonify({
+                "status": "not_found",
+                "message": "Belum ada proses PDF generation untuk sesi ini"
+            })
+        
+        status_info = pdf_generation_status[session_id]
+        response = {
+            "status": status_info['status']
+        }
+        
+        if status_info['status'] == 'processing':
+            response['message'] = 'PDF sedang disiapkan di background...'
+        elif status_info['status'] == 'ready':
+            response['message'] = 'PDF siap diunduh!'
+        elif status_info['status'] == 'error':
+            response['message'] = 'Gagal menyiapkan PDF. Download akan dibuat saat Anda klik tombol.'
+            response['error_detail'] = status_info.get('error_msg', 'Unknown error')
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error checking PDF status: {e}", exc_info=True)
+        return jsonify({"error": "Gagal mengecek status PDF"}), 500
 
 
 @app.route('/api/download_bibtex/<int:ref_number>', methods=['GET'])

@@ -151,6 +151,7 @@ function createWindow() {
     },
     icon: path.join(__dirname, 'assets', 'icon.png'),
     title: 'Reference Validator',
+    autoHideMenuBar: true, // Hide menu bar (File, Edit, View, etc.)
     show: false // Don't show until ready
   });
 

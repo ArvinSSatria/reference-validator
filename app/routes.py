@@ -51,8 +51,7 @@ def _generate_pdf_background(session_id, results_filepath, original_filepath, in
                 # Annotate PDF
                 annotated_pdf_stream, error = create_annotated_pdf(
                     base_pdf_stream,
-                    result.get('detailed_results', []),
-                    result.get('year_range', 10)
+                    result
                 )
                 if error:
                     raise Exception(error)
@@ -66,8 +65,7 @@ def _generate_pdf_background(session_id, results_filepath, original_filepath, in
                 # Direct PDF annotation
                 annotated_pdf_stream, error = create_annotated_pdf(
                     original_filepath,
-                    result.get('detailed_results', []),
-                    result.get('year_range', 10)
+                    result
                 )
                 if error:
                     raise Exception(error)
@@ -276,8 +274,7 @@ def download_report_api():
 
             annotated_pdf_stream, error = create_annotated_pdf(
                 pdf_to_annotate_path, 
-                validation_results.get('detailed_results', []),
-                validation_results.get('year_range', 10)
+                validation_results
             )
             
             if is_temp_pdf and os.path.exists(pdf_to_annotate_path):

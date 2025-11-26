@@ -1,4 +1,11 @@
-# Reference Validator
+# Reference Validator - Desktop Application
+
+> **Alat Bantu Pemrosesan Referensi Otomatis**  
+> Sistem berbasis Natural Language Processing untuk validasi referensi ilmiah secara otomatis
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/downloads/)
+[![Electron](https://img.shields.io/badge/Electron-28.0.0-47848F?logo=electron)](https://www.electronjs.org/)
 
 **[English](#english-version) | [Bahasa Indonesia](#versi-bahasa-indonesia)**
 
@@ -8,83 +15,163 @@
 
 ### Description
 
-Reference Validator is a web-based application for automatic validation and processing of academic references. It extracts and validates references from PDF and DOCX files against ScimagoJR and Scopus databases, and generates annotated PDF outputs with detailed validation results.
+Reference Validator is a **desktop application** for automatic validation and processing of academic references. Built with **Electron + Flask**, it extracts and validates references from PDF and DOCX files against ScimagoJR and Scopus databases, and generates annotated PDF outputs with detailed validation results.
 
 ### Key Features
 
--   Extract and validate reference lists from PDF and DOCX files
--   Direct text input for reference validation
--   Match journal names against ScimagoJR and Scopus datasets
--   Verification rules (quartile, publication year, journal percentage, etc.)
--   Generate PDF files with highlighted validation results
--   Export references in BibTeX format
--   Automatic cleanup of temporary files
--   Responsive web-based GUI interface
+-   **Desktop Application** - Standalone Electron app (Windows, macOS, Linux)
+-   **File Support** - Extract references from PDF and DOCX files
+-   **Text Input** - Direct text input for reference validation
+-   **Database Matching** - Match against ScimagoJR and Scopus datasets
+-   **Smart Validation** - Quartile, publication year, journal percentage checks
+-   **Annotated PDF** - Generate highlighted PDF with validation results
+-   **BibTeX Export** - Export references in BibTeX format (.bib)
+-   **Real-time Progress** - WebSocket-based progress tracking
+-   **Modern UI** - Clean, responsive interface with dark gradient theme
+-   **Back to Top** - Smooth scroll navigation button
+-   **Auto Cleanup** - Automatic cleanup of temporary files
 
 ### System Requirements
 
+#### For Running Compiled App:
+-   **Windows**: Windows 10/11 (64-bit)
+-   **macOS**: macOS 10.13+ (Intel & Apple Silicon)
+-   **Linux**: Ubuntu 18.04+, Fedora, Debian
+-   **RAM**: 4GB minimum, 8GB recommended
+-   **Storage**: 500MB free space
+-   **Internet**: Active connection for Gemini API
+
+#### For Development:
 -   Python 3.8 or higher
+-   Node.js 16+ & npm
 -   pip (Python Package Manager)
--   Active internet connection
 -   Google Gemini API Key
--   Modern web browser (Chrome, Firefox, Edge, Safari)
 
 ---
 
-### Installation
+## Installation
 
-#### Step 1: Clone the Repository
+### Option 1: Download Compiled App (Recommended for Users)
 
+#### Windows:
+1. Download `Reference-Validator-Setup.exe` from [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
+2. Run installer
+3. Configure `.env` file (see [Configuration](#configuration))
+4. Launch from Desktop or Start Menu
+
+#### macOS:
+1. Download `Reference-Validator.dmg` from [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
+2. Open DMG and drag to Applications
+3. Configure `.env` file (see [Configuration](#configuration))
+4. Launch from Applications
+
+#### Linux:
+1. Download `Reference-Validator.AppImage` from [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
+2. Make executable: `chmod +x Reference-Validator.AppImage`
+3. Configure `.env` file (see [Configuration](#configuration))
+4. Run: `./Reference-Validator.AppImage`
+
+---
+
+### Option 2: Run from Source (For Developers)
+
+#### Step 1: Clone Repository
 ```bash
 git clone https://github.com/ArvinSSatria/reference-validator.git
 cd reference-validator
 ```
 
-#### Step 2: Create Virtual Environment (Recommended)
-
+#### Step 2: Setup Python Environment
 ```bash
+# Create virtual environment
 python -m venv venv
+
+# Activate (Windows)
 venv\Scripts\activate
-```
 
-#### Step 3: Install Dependencies
+# Activate (macOS/Linux)
+source venv/bin/activate
 
-```bash
+# Install Python dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### Step 4: Configure Environment Variables
-
-Create a `.env` file in the project root directory:
-
+#### Step 3: Setup Electron Environment
+```bash
+cd electron
+npm install
+cd ..
 ```
+
+#### Step 4: Configure Environment Variables
+Create `.env` file in project root:
+```env
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-#### Step 5: Run the Application
+#### Step 5: Run Application
+```bash
+cd electron
+npm start
+```
+
+---
+
+### Building Installer
+
+To create distributable installer:
 
 ```bash
-python run.py
+cd electron
+
+# Build for Windows
+npm run build
+
+# Build for macOS
+npm run build:mac
+
+# Build for Linux
+npm run build:linux
 ```
 
-The application will be available at:
-```
-http://localhost:5000
-```
+Output will be in `electron/dist/`
 
 ---
 
 ### How to Use
 
-1. **Open the Application**: Launch your web browser and navigate to `http://localhost:5000`
-2. **Choose Input Method**:
-   - **Upload File**: Select a PDF or DOCX file containing references
-   - **Enter Text**: Paste or type reference text directly
-3. **Start Validation**: Click "Start Validation" and wait for processing
-4. **View Results**: Review detailed validation results on the page
-5. **Download Report**: Save the annotated PDF with highlights and validation notes
-6. **Export References** (Optional): Download individual references in BibTeX format
+1. **Launch Application** 
+   - Desktop: Click app icon
+   - Development: Run `npm start` in `electron/` folder
+
+2. **Choose Input Method**
+   - **Upload File**: Drag & drop or click to select PDF/DOCX (max 16MB)
+   - **Text Input**: Paste or type reference list manually
+
+3. **Configure Options** (Optional)
+   - Min. Jumlah Referensi (default: 10)
+   - Gaya Penulisan (Auto, APA, IEEE, MLA, Chicago, Harvard)
+   - Min. Persentase Jurnal (default: 80%)
+   - Min. Tahun Publikasi (default: 5 years)
+
+4. **Validate** 
+   - Click "Validasi Referensi" button
+   - Watch real-time progress bar
+   - Wait for analysis to complete
+
+5. **Review Results**
+   - View summary (total, valid, invalid, validation rate)
+   - Filter by: Invalid / Valid / Indexed (SJR)
+   - Check detailed validation for each reference
+
+6. **Export**
+   - **Download PDF**: Get annotated PDF with highlights
+   - **Export .bib**: Download BibTeX for individual or all references
+
+7. **Validate Again**
+   - Scroll to top or click "Back to Top" button (bottom-right)
+   - Upload new file or enter new references
 
 ---
 
@@ -92,75 +179,197 @@ http://localhost:5000
 
 ```
 reference-validator/
-├── app/
+├── app/                        # Flask backend
 │   ├── __init__.py
-│   ├── routes.py
+│   ├── routes.py              # API routes
 │   ├── models/
-│   │   └── reference.py
+│   │   └── reference.py       # Reference data model
 │   ├── services/
-│   │   ├── ai_service.py
-│   │   ├── bibtex_service.py
-│   │   ├── docx_service.py
-│   │   ├── pdf_annotator.py
-│   │   ├── pdf_service.py
-│   │   ├── scimago_service.py
-│   │   ├── scopus_service.py
-│   │   └── validation_service.py
+│   │   ├── ai_service.py      # Gemini AI integration
+│   │   ├── bibtex_service.py  # BibTeX generation
+│   │   ├── docx_service.py    # DOCX extraction
+│   │   ├── pdf_annotator.py   # PDF annotation
+│   │   ├── pdf_service.py     # PDF extraction
+│   │   ├── scimago_service.py # ScimagoJR matching
+│   │   ├── scopus_service.py  # Scopus matching
+│   │   └── validation_service.py # Main validation logic
 │   └── utils/
-│       ├── file_utils.py
-│       └── text_utils.py
+│       ├── file_utils.py      # File operations
+│       └── text_utils.py      # Text processing
+├── electron/                   # Electron desktop app
+│   ├── main.js                # Main process
+│   ├── preload.js             # Preload script
+│   ├── package.json           # Electron dependencies
+│   ├── electron-builder.json  # Build configuration
+│   └── assets/                # App icons
+│       ├── icon.png           # Window icon
+│       └── icon.ico           # Windows installer icon
 ├── templates/
-│   └── index.html
+│   └── index.html             # Frontend HTML
 ├── static/
 │   ├── css/
-│   │   └── style.css
+│   │   └── style.css          # Styling
 │   └── js/
-│       └── script.js
+│       └── script.js          # Frontend logic + SocketIO
 ├── data/
-│   ├── scimagojr 2024.csv
-│   └── scopus 2025.csv
-├── uploads/
-├── config.py
-├── run.py
-├── requirements.txt
-└── README.md
+│   ├── scimagojr 2024.csv     # ScimagoJR database
+│   └── scopus 2025.csv        # Scopus database
+├── uploads/                    # Temporary file uploads
+├── config.py                   # App configuration
+├── run.py                      # Flask entry point
+├── requirements.txt            # Python dependencies
+└── README.md                   # This file
 ```
 
 ---
 
 ### Configuration
 
-Edit `config.py` to customize application behavior:
+#### Environment Variables (`.env`)
 
--   `SECRET_KEY`: Flask session security key
--   `MAX_CONTENT_LENGTH`: Maximum file upload size (default: 16MB)
--   `ALLOWED_EXTENSIONS`: Allowed file types (pdf, docx)
--   `UPLOAD_FOLDER`: Directory for temporary uploaded files
--   `MIN_REFERENCE_COUNT`: Minimum required references
--   `MAX_REFERENCE_COUNT`: Maximum allowed references
--   `JOURNAL_PROPORTION_THRESHOLD`: Minimum journal percentage
--   `REFERENCE_YEAR_THRESHOLD`: Acceptable publication year range
--   `AUTO_CLEANUP_ENABLED`: Enable automatic cleanup of old files
--   `AUTO_CLEANUP_MAX_AGE_HOURS`: Age threshold for file cleanup
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+Get API key from: https://aistudio.google.com/app/apikey
+
+#### Application Settings (`config.py`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SECRET_KEY` | Auto-generated | Flask session security key |
+| `MAX_CONTENT_LENGTH` | 16MB | Maximum file upload size |
+| `ALLOWED_EXTENSIONS` | pdf, docx | Allowed file types |
+| `UPLOAD_FOLDER` | uploads/ | Temporary upload directory |
+| `MIN_REFERENCE_COUNT` | 10 | Minimum required references |
+| `MAX_REFERENCE_COUNT` | 200 | Maximum allowed references |
+| `JOURNAL_PROPORTION_THRESHOLD` | 80% | Minimum journal percentage |
+| `REFERENCE_YEAR_THRESHOLD` | 5 years | Publication year range |
+| `AUTO_CLEANUP_ENABLED` | True | Auto cleanup old files |
+| `AUTO_CLEANUP_MAX_AGE_HOURS` | 24 | Cleanup age threshold |
+
+#### Electron Settings (`electron/main.js`)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `width` | 1400 | Window width |
+| `height` | 900 | Window height |
+| `minWidth` | 1000 | Minimum width |
+| `minHeight` | 700 | Minimum height |
+| `autoHideMenuBar` | true | Hide File/Edit menu |
+| `FLASK_PORT` | 5000 | Backend server port |
 
 ---
 
 ### Troubleshooting
 
-**Problem**: Application fails to start  
-**Solution**: Ensure Python 3.8+ is installed and all dependencies are installed via `pip install -r requirements.txt`
+<details>
+<summary><b>Application fails to start</b></summary>
 
-**Problem**: Gemini API Key error  
-**Solution**: Create `.env` file with valid `GEMINI_API_KEY` and restart the application
+**Causes:**
+- Python not installed or wrong version
+- Missing dependencies
+- Port 5000 already in use
 
-**Problem**: File upload fails  
-**Solution**: Ensure file is PDF or DOCX format and does not exceed 16MB
+**Solutions:**
+```bash
+# Check Python version
+python --version  # Should be 3.8+
 
-**Problem**: Journal not found in database  
-**Solution**: Check journal name spelling. Database contains ScimagoJR and Scopus journals
+# Reinstall dependencies
+pip install -r requirements.txt
 
-**Problem**: PDF annotation fails  
-**Solution**: Ensure uploaded PDF is not encrypted or corrupted
+# Check if port is in use (Windows)
+netstat -ano | findstr :5000
+
+# Kill process using port 5000
+taskkill /PID <PID> /F
+```
+</details>
+
+<details>
+<summary><b>Gemini API Key error</b></summary>
+
+**Error messages:**
+- "API key tidak valid"
+- "Kuota API habis"
+- "Timeout koneksi ke Gemini"
+
+**Solutions:**
+1. Get valid API key from https://aistudio.google.com/app/apikey
+2. Create/edit `.env` file in project root:
+   ```
+   GEMINI_API_KEY=your_actual_api_key_here
+   ```
+3. Restart application
+4. Check API quota at https://aistudio.google.com/
+</details>
+
+<details>
+<summary><b>File upload fails</b></summary>
+
+**Solutions:**
+- Ensure file format is `.pdf` or `.docx`
+- Check file size < 16MB
+- Remove password protection from PDF
+- Try re-saving file in compatible format
+</details>
+
+<details>
+<summary><b>Journal not found in database</b></summary>
+
+**Solutions:**
+- Check journal name spelling
+- Try alternative journal name format
+- Verify journal is indexed in ScimagoJR or Scopus
+- Update CSV databases in `data/` folder
+</details>
+
+<details>
+<summary><b>PDF annotation fails / Download stuck</b></summary>
+
+**Solutions:**
+- Ensure PDF is not encrypted/password protected
+- Check PDF is not corrupted (try opening in Adobe Reader)
+- Clear `uploads/` folder
+- Restart application
+- Check disk space
+</details>
+
+<details>
+<summary><b>Electron app won't launch</b></summary>
+
+**Solutions:**
+```bash
+# Rebuild Electron modules
+cd electron
+npm install
+npm rebuild
+
+# Clear cache
+npm cache clean --force
+
+# Reinstall
+rm -rf node_modules package-lock.json
+npm install
+```
+</details>
+
+<details>
+<summary><b>Python dependencies error</b></summary>
+
+**Solutions:**
+```bash
+# Upgrade pip
+python -m pip install --upgrade pip
+
+# Install with verbose output
+pip install -r requirements.txt --verbose
+
+# Install individually if batch fails
+pip install flask flask-socketio python-docx PyMuPDF fuzzywuzzy python-Levenshtein google-generativeai python-dotenv
+```
+</details>
 
 ---
 
@@ -183,68 +392,145 @@ Reference Validator adalah aplikasi berbasis web untuk validasi dan pemrosesan r
 
 ### Kebutuhan Sistem
 
+#### Untuk Aplikasi yang Sudah Dikompilasi:
+-   **Windows**: Windows 10/11 (64-bit)
+-   **macOS**: macOS 10.13+ (Intel & Apple Silicon)
+-   **Linux**: Ubuntu 18.04+, Fedora, Debian
+-   **RAM**: 4GB minimum, 8GB disarankan
+-   **Storage**: 500MB ruang kosong
+-   **Internet**: Koneksi aktif untuk Gemini API
+
+#### Untuk Development:
 -   Python 3.8 atau lebih tinggi
+-   Node.js 16+ & npm
 -   pip (Python Package Manager)
--   Koneksi internet aktif
 -   Google Gemini API Key
--   Web browser modern (Chrome, Firefox, Edge, Safari)
 
 ---
 
-### Cara Instalasi
+## Cara Instalasi
+
+### Opsi 1: Download Aplikasi (Direkomendasikan untuk User)
+
+#### Windows:
+1. Download `Reference-Validator-Setup.exe` dari [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
+2. Jalankan installer
+3. Konfigurasi file `.env` (lihat [Konfigurasi](#konfigurasi-1))
+4. Buka dari Desktop atau Start Menu
+
+#### macOS:
+1. Download `Reference-Validator.dmg` dari [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
+2. Buka DMG dan drag ke Applications
+3. Konfigurasi file `.env` (lihat [Konfigurasi](#konfigurasi-1))
+4. Buka dari Applications
+
+#### Linux:
+1. Download `Reference-Validator.AppImage` dari [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
+2. Buat executable: `chmod +x Reference-Validator.AppImage`
+3. Konfigurasi file `.env` (lihat [Konfigurasi](#konfigurasi-1))
+4. Jalankan: `./Reference-Validator.AppImage`
+
+---
+
+### Opsi 2: Jalankan dari Source (Untuk Developer)
 
 #### Langkah 1: Clone Repository
-
 ```bash
 git clone https://github.com/ArvinSSatria/reference-validator.git
 cd reference-validator
 ```
 
-#### Langkah 2: Buat Virtual Environment (Direkomendasikan)
-
+#### Langkah 2: Setup Python Environment
 ```bash
+# Buat virtual environment
 python -m venv venv
+
+# Aktifkan (Windows)
 venv\Scripts\activate
-```
 
-#### Langkah 3: Install Dependencies
+# Aktifkan (macOS/Linux)
+source venv/bin/activate
 
-```bash
+# Install Python dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### Langkah 4: Konfigurasi Environment Variables
-
-Buat file `.env` di direktori root proyek:
-
+#### Langkah 3: Setup Electron Environment
+```bash
+cd electron
+npm install
+cd ..
 ```
+
+#### Langkah 4: Konfigurasi Environment Variables
+Buat file `.env` di root proyek:
+```env
 GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 #### Langkah 5: Jalankan Aplikasi
+```bash
+cd electron
+npm start
+```
+
+---
+
+### Build Installer
+
+Untuk membuat installer distribusi:
 
 ```bash
-python run.py
+cd electron
+
+# Build untuk Windows
+npm run build
+
+# Build untuk macOS
+npm run build:mac
+
+# Build untuk Linux
+npm run build:linux
 ```
 
-Aplikasi akan tersedia di:
-```
-http://localhost:5000
-```
+Output akan ada di `electron/dist/`
 
 ---
 
 ### Cara Penggunaan
 
-1. **Buka Aplikasi**: Buka web browser dan navigasi ke `http://localhost:5000`
-2. **Pilih Metode Input**:
-   - **Upload File**: Pilih file PDF atau DOCX yang berisi referensi
-   - **Input Teks**: Paste atau ketik teks referensi langsung
-3. **Mulai Validasi**: Klik "Start Validation" dan tunggu proses selesai
-4. **Lihat Hasil**: Tinjau hasil validasi terperinci di halaman
-5. **Download Laporan**: Simpan PDF beranotasi dengan highlight dan catatan validasi
-6. **Ekspor Referensi** (Opsional): Unduh referensi individual dalam format BibTeX
+1. **Buka Aplikasi** 
+   - Desktop: Klik icon aplikasi
+   - Development: Jalankan `npm start` di folder `electron/`
+
+2. **Pilih Metode Input**
+   - **Upload File**: Drag & drop atau klik untuk pilih PDF/DOCX (maks 16MB)
+   - **Input Teks**: Paste atau ketik daftar referensi manual
+
+3. **Konfigurasi Opsi** (Opsional)
+   - Min. Jumlah Referensi (default: 10)
+   - Gaya Penulisan (Auto, APA, IEEE, MLA, Chicago, Harvard)
+   - Min. Persentase Jurnal (default: 80%)
+   - Min. Tahun Publikasi (default: 5 tahun)
+
+4. **Validasi** 
+   - Klik tombol "Validasi Referensi"
+   - Lihat progress bar real-time
+   - Tunggu analisis selesai
+
+5. **Lihat Hasil**
+   - Lihat ringkasan (total, valid, invalid, tingkat validitas)
+   - Filter: Invalid / Valid / Indexed (SJR)
+   - Periksa validasi detail setiap referensi
+
+6. **Ekspor**
+   - **Download PDF**: Dapatkan PDF beranotasi dengan highlight
+   - **Export .bib**: Download BibTeX untuk individual atau semua referensi
+
+7. **Validasi Lagi**
+   - Scroll ke atas atau klik tombol "Back to Top" (kanan bawah)
+   - Upload file baru atau masukkan referensi baru
 
 ---
 
@@ -290,18 +576,39 @@ reference-validator/
 
 ### Konfigurasi
 
-Edit `config.py` untuk menyesuaikan perilaku aplikasi:
+#### Environment Variables (`.env`)
 
--   `SECRET_KEY`: Kunci keamanan session Flask
--   `MAX_CONTENT_LENGTH`: Ukuran file upload maksimum (default: 16MB)
--   `ALLOWED_EXTENSIONS`: Tipe file yang diizinkan (pdf, docx)
--   `UPLOAD_FOLDER`: Direktori untuk file upload sementara
--   `MIN_REFERENCE_COUNT`: Jumlah referensi minimal yang diperlukan
--   `MAX_REFERENCE_COUNT`: Jumlah referensi maksimal yang diizinkan
--   `JOURNAL_PROPORTION_THRESHOLD`: Persentase jurnal minimal
--   `REFERENCE_YEAR_THRESHOLD`: Rentang tahun publikasi yang diterima
--   `AUTO_CLEANUP_ENABLED`: Aktifkan pembersihan otomatis file lama
--   `AUTO_CLEANUP_MAX_AGE_HOURS`: Ambang umur untuk pembersihan file
+```env
+GEMINI_API_KEY=api_key_anda_disini
+```
+
+Dapatkan API key dari: https://aistudio.google.com/app/apikey
+
+#### Pengaturan Aplikasi (`config.py`)
+
+| Pengaturan | Default | Deskripsi |
+|-----------|---------|-----------|
+| `SECRET_KEY` | Auto-generate | Kunci keamanan session Flask |
+| `MAX_CONTENT_LENGTH` | 16MB | Ukuran maksimum upload file |
+| `ALLOWED_EXTENSIONS` | pdf, docx | Tipe file yang diizinkan |
+| `UPLOAD_FOLDER` | uploads/ | Direktori upload sementara |
+| `MIN_REFERENCE_COUNT` | 10 | Jumlah referensi minimal |
+| `MAX_REFERENCE_COUNT` | 200 | Jumlah referensi maksimal |
+| `JOURNAL_PROPORTION_THRESHOLD` | 80% | Persentase jurnal minimal |
+| `REFERENCE_YEAR_THRESHOLD` | 5 tahun | Rentang tahun publikasi |
+| `AUTO_CLEANUP_ENABLED` | True | Auto cleanup file lama |
+| `AUTO_CLEANUP_MAX_AGE_HOURS` | 24 | Ambang umur cleanup |
+
+#### Pengaturan Electron (`electron/main.js`)
+
+| Pengaturan | Default | Deskripsi |
+|-----------|---------|-----------|
+| `width` | 1400 | Lebar window |
+| `height` | 900 | Tinggi window |
+| `minWidth` | 1000 | Lebar minimum |
+| `minHeight` | 700 | Tinggi minimum |
+| `autoHideMenuBar` | true | Sembunyikan menu File/Edit |
+| `FLASK_PORT` | 5000 | Port backend server |
 
 ---
 
@@ -324,43 +631,116 @@ Edit `config.py` untuk menyesuaikan perilaku aplikasi:
 
 ---
 
-## Developer Notes
+## Tech Stack
 
-Untuk pengembang yang ingin menjalankan dari source atau membangun aplikasi, lihat dokumentasi pengembangan di bawah.
+### Backend:
+- **Flask** 3.0.0 - Web framework
+- **Flask-SocketIO** 5.4.1 - Real-time communication
+- **PyMuPDF (fitz)** 1.24.14 - PDF processing
+- **python-docx** 1.1.2 - DOCX processing
+- **Google Generative AI (Gemini)** 0.8.3 - AI-powered validation
+- **FuzzyWuzzy** 0.18.0 - Fuzzy string matching
+- **python-Levenshtein** 0.26.1 - String similarity
 
-### Running from Source
+### Frontend:
+- **HTML5/CSS3** - Modern UI
+- **JavaScript (ES6)** - Interactive features
+- **Socket.IO Client** 4.5.4 - Real-time updates
+- **Font Awesome** 6.0.0 - Icons
 
-1. Clone repository:
+### Desktop:
+- **Electron** 28.0.0 - Cross-platform desktop wrapper
+- **electron-builder** 24.9.1 - App packaging
+
+### Development:
+- **Python** 3.8+
+- **Node.js** 16+
+- **npm** - Package management
+
+---
+
+## Development
+
+### Project Structure
+```
+Frontend (Electron) → Backend (Flask) → Services → Database (CSV)
+     ↓                    ↓                ↓             ↓
+  UI Layer         API Routes      Business Logic   Data Layer
+```
+
+### Adding New Features
+
+1. **Backend**: Add service in `app/services/`
+2. **API**: Add route in `app/routes.py`
+3. **Frontend**: Update `static/js/script.js`
+4. **UI**: Modify `templates/index.html` & `static/css/style.css`
+
+### Running Tests
 ```bash
-git clone https://github.com/ArvinSSatria/reference-validator.git
-cd reference-validator
-```
+# Python tests (if available)
+pytest
 
-2. Buat virtual environment:
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
+# Lint Python code
+pylint app/
 
-3. Install dependencies:
-```powershell
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-4. Persiapkan file data:
-   - Tambahkan API key ke file `.env`
-   - Pastikan file `data/scimagojr 2024.csv` dan `data/scopus 2025.csv` ada
-
-5. Jalankan aplikasi:
-```powershell
-python run.py
+# Format Python code
+black app/
 ```
 
 ---
 
-### Lisensi
+## Contributing
 
-Proyek ini dilisensikan di bawah MIT License - lihat file [LICENSE](LICENSE) untuk detail lengkap.
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open Pull Request
+
+---
+
+## License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Authors
+
+**ArvinSSatria**
+- GitHub: [@ArvinSSatria](https://github.com/ArvinSSatria)
+- Repository: [reference-validator](https://github.com/ArvinSSatria/reference-validator)
+
+---
+
+## Acknowledgments
+
+- **Universitas Ahmad Dahlan** - Fakultas Teknologi Industri, Program Studi S1 Informatika
+- **ScimagoJR** - Journal ranking database
+- **Scopus** - Academic database
+- **Google Gemini AI** - Natural language processing
+- **Electron** - Cross-platform desktop framework
+- **Flask** - Python web framework
+
+---
+
+## Support
+
+Jika ada pertanyaan atau masalah:
+- **Bug Reports**: [Open an issue](https://github.com/ArvinSSatria/reference-validator/issues)
+- **Feature Requests**: [Open an issue](https://github.com/ArvinSSatria/reference-validator/issues)
+- **Contact**: Through GitHub profile
+
+---
+
+<div align="center">
+
+**Star this repository if you find it helpful!**
+
+Made by [ArvinSSatria](https://github.com/ArvinSSatria)
+
+</div>
 
 

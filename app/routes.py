@@ -17,12 +17,40 @@ from config import Config
 # Format: {session_id: {'status': 'processing'|'ready'|'error', 'filepath': '...', 'error_msg': '...'}}
 pdf_generation_status = {}
 
+def _is_production():
+    """Check if running in production environment (Railway/Linux)"""
+    import platform
+    # Check Railway environment variable
+    if os.getenv('RAILWAY_ENVIRONMENT'):
+        return True
+    # Check if running on Linux (Railway uses Linux)
+    if platform.system() == 'Linux':
+        return True
+    return False
+
 def _generate_pdf_background(session_id, results_filepath, original_filepath, input_filename):
     """
     Generate PDF di background thread setelah validasi selesai.
     Update status ke pdf_generation_status dict.
     """
     try:
+        # Skip background generation untuk DOCX di production (Railway/Linux)
+        # karena docx2pdf hanya work di Windows
+        if input_filename and input_filename.lower().endswith('.docx') and _is_production():
+            logger.warning(f"[Background PDF] Skipping background generation for DOCX in production: {session_id}")
+            pdf_generation_status[session_id] = {
+                'status': 'error',
+                'filepath': None,
+                'error_msg': 'DOCX background generation not supported in production'
+            }
+            # Emit error via SocketIO
+            socketio.emit('pdf_generation_progress', {
+                'status': 'error',
+                'message': 'PDF akan dibuat saat Anda klik tombol download.',
+                'session_id': session_id
+            })
+            return
+        
         logger.info(f"[Background PDF] Starting generation for session {session_id}")
         pdf_generation_status[session_id] = {'status': 'processing', 'filepath': None, 'error_msg': None}
         
@@ -44,9 +72,15 @@ def _generate_pdf_background(session_id, results_filepath, original_filepath, in
         if original_filepath and os.path.exists(original_filepath):
             if input_filename.lower().endswith('.docx'):
                 # Convert DOCX to PDF dulu
-                base_pdf_stream, error = convert_docx_to_pdf(original_filepath)
-                if error:
-                    raise Exception(error)
+                try:
+                    base_pdf_stream, error = convert_docx_to_pdf(original_filepath)
+                    if error:
+                        raise Exception(error)
+                except Exception as docx_error:
+                    # Jika docx2pdf tidak tersedia (production/Linux)
+                    error_msg = f"DOCX conversion not available in this environment: {docx_error}"
+                    logger.error(f"[Background PDF] {error_msg}")
+                    raise Exception(error_msg)
                 
                 # Annotate PDF
                 annotated_pdf_bytes, error = create_annotated_pdf(
@@ -185,15 +219,20 @@ def validate_references_api():
         result['input_filename'] = input_filename  # Tambahkan ke response
         
         # HYBRID: Start background PDF generation jika ada file
-        if original_filepath and os.path.exists(original_filepath):
-            background_thread = threading.Thread(
-                target=_generate_pdf_background,
-                args=(session_id, results_filepath, original_filepath, input_filename)
-            )
-            background_thread.daemon = True
-            background_thread.start()
-            logger.info(f"[Background PDF] Thread started for session {session_id}")
-            result['pdf_status'] = 'processing'  # Info untuk frontend
+        if original_filepath and os.path.exists(original_filepath) and input_filename:
+            # Di production, skip background untuk DOCX tapi tetap set status
+            if input_filename.lower().endswith('.docx') and _is_production():
+                result['pdf_status'] = 'not_available'  # Skip background, akan on-demand
+                logger.info(f"[Background PDF] Skipped for DOCX in production: {session_id}")
+            else:
+                background_thread = threading.Thread(
+                    target=_generate_pdf_background,
+                    args=(session_id, results_filepath, original_filepath, input_filename)
+                )
+                background_thread.daemon = True
+                background_thread.start()
+                logger.info(f"[Background PDF] Thread started for session {session_id}")
+                result['pdf_status'] = 'processing'  # Info untuk frontend
         else:
             result['pdf_status'] = 'not_available'  # Text input tidak ada PDF
             
@@ -272,6 +311,14 @@ def download_report_api():
         # Jika PDF belum ready, generate on-the-fly (fallback)
         if not pdf_ready:
             logger.info(f"[Download] Generating PDF on-the-fly for session {session_id or 'legacy'}")
+            
+            # Check jika DOCX di production, return error yang jelas
+            if original_filepath.lower().endswith('.docx') and _is_production():
+                return jsonify({
+                    "error": "Maaf, konversi file DOCX tidak tersedia di versi web. "
+                            "Silakan gunakan aplikasi desktop atau upload file dalam format PDF."
+                }), 400
+            
             pdf_to_annotate_path = original_filepath
             is_temp_pdf = False
 

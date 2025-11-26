@@ -49,7 +49,7 @@ def _generate_pdf_background(session_id, results_filepath, original_filepath, in
                     raise Exception(error)
                 
                 # Annotate PDF
-                annotated_pdf_stream, error = create_annotated_pdf(
+                annotated_pdf_bytes, error = create_annotated_pdf(
                     base_pdf_stream,
                     result
                 )
@@ -59,11 +59,11 @@ def _generate_pdf_background(session_id, results_filepath, original_filepath, in
                 # Save to file
                 pdf_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_annotated.pdf"))
                 with open(pdf_filepath, 'wb') as f:
-                    f.write(annotated_pdf_stream.getvalue())
+                    f.write(annotated_pdf_bytes)
                     
             elif input_filename.lower().endswith('.pdf'):
                 # Direct PDF annotation
-                annotated_pdf_stream, error = create_annotated_pdf(
+                annotated_pdf_bytes, error = create_annotated_pdf(
                     original_filepath,
                     result
                 )
@@ -73,7 +73,7 @@ def _generate_pdf_background(session_id, results_filepath, original_filepath, in
                 # Save to file
                 pdf_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_annotated.pdf"))
                 with open(pdf_filepath, 'wb') as f:
-                    f.write(annotated_pdf_stream.getvalue())
+                    f.write(annotated_pdf_bytes)
         
         # Update status ke ready
         pdf_generation_status[session_id] = {
@@ -120,6 +120,8 @@ def validate_references_api():
         # Auto-cleanup file lama (> 1 jam) dari folder uploads
         if Config.AUTO_CLEANUP_ENABLED:
             _cleanup_old_upload_files(max_age_hours=Config.AUTO_CLEANUP_MAX_AGE_HOURS)
+            # Cleanup pdf_generation_status dict juga
+            _cleanup_pdf_status_dict(max_age_hours=2)
 
         # Buat ID unik untuk sesi validasi ini
         session_id = str(uuid.uuid4())
@@ -164,16 +166,23 @@ def validate_references_api():
             os.makedirs(upload_folder)
             
         results_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_results.json"))
+        # Tambahkan input_filename ke result sebelum disimpan
+        if input_filename:
+            result['input_filename'] = input_filename
+        
         with open(results_filepath, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
         
         # Simpan path file hasil di sesi (untuk text input dan file input)
         session['results_filepath'] = results_filepath
         session['session_id'] = session_id
+        if input_filename:
+            session['input_filename'] = input_filename
         
         # Tambahkan session_id dan metadata ke response untuk client
         result['session_id'] = session_id
         result['has_file'] = original_filepath is not None
+        result['input_filename'] = input_filename  # Tambahkan ke response
         
         # HYBRID: Start background PDF generation jika ada file
         if original_filepath and os.path.exists(original_filepath):
@@ -272,7 +281,7 @@ def download_report_api():
                 pdf_to_annotate_path = pdf_path
                 is_temp_pdf = True
 
-            annotated_pdf_stream, error = create_annotated_pdf(
+            annotated_pdf_bytes, error = create_annotated_pdf(
                 pdf_to_annotate_path, 
                 validation_results
             )
@@ -282,18 +291,22 @@ def download_report_api():
             
             if error: return jsonify({"error": error}), 500
 
-            base_name, _ = os.path.splitext(os.path.basename(original_filepath))
+            # Gunakan nama file asli dari validation results jika ada
+            original_filename = validation_results.get('input_filename', os.path.basename(original_filepath))
+            base_name, _ = os.path.splitext(original_filename)
             download_filename = f"annotated_{base_name}.pdf"
 
             return send_file(
-                annotated_pdf_stream,
+                io.BytesIO(annotated_pdf_bytes),
                 mimetype='application/pdf',
                 as_attachment=True,
                 download_name=download_filename
             )
         else:
             # Send pre-generated PDF file
-            base_name, _ = os.path.splitext(os.path.basename(original_filepath))
+            # Gunakan nama file asli dari validation results jika ada
+            original_filename = validation_results.get('input_filename', os.path.basename(original_filepath))
+            base_name, _ = os.path.splitext(original_filename)
             download_filename = f"annotated_{base_name}.pdf"
 
             return send_file(
@@ -421,6 +434,42 @@ def _cleanup_session_files():
                 logger.warning(f"Gagal menghapus file sesi lama {filepath}: {e}")
 
 
+def _cleanup_pdf_status_dict(max_age_hours=2):
+    """
+    Menghapus entry lama dari pdf_generation_status dict.
+    Entry yang sudah lebih dari max_age_hours akan dihapus untuk mencegah memory leak.
+    """
+    try:
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        sessions_to_remove = []
+        
+        # Cari session yang sudah kadaluarsa
+        for session_id in list(pdf_generation_status.keys()):
+            # Cek apakah file annotated masih ada
+            upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+            annotated_filepath = os.path.join(upload_folder, f"{session_id}_annotated.pdf")
+            
+            # Jika file sudah tidak ada atau sudah terlalu lama
+            if not os.path.exists(annotated_filepath):
+                sessions_to_remove.append(session_id)
+            elif os.path.exists(annotated_filepath):
+                file_age = current_time - os.path.getmtime(annotated_filepath)
+                if file_age > max_age_seconds:
+                    sessions_to_remove.append(session_id)
+        
+        # Hapus entry dari dict
+        for session_id in sessions_to_remove:
+            del pdf_generation_status[session_id]
+            logger.debug(f"Removed old PDF status entry: {session_id}")
+        
+        if sessions_to_remove:
+            logger.info(f"Cleaned up {len(sessions_to_remove)} old PDF status entries")
+            
+    except Exception as e:
+        logger.warning(f"Error during PDF status dict cleanup: {e}")
+
+
 def _cleanup_old_upload_files(max_age_hours=1):
     try:
         upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
@@ -443,6 +492,14 @@ def _cleanup_old_upload_files(max_age_hours=1):
             
             if file_age > max_age_seconds:
                 try:
+                    # Extract session_id dari filename jika ada
+                    if '_' in filename:
+                        session_id = filename.split('_')[0]
+                        # Hapus entry dari pdf_generation_status jika ada
+                        if session_id in pdf_generation_status:
+                            del pdf_generation_status[session_id]
+                            logger.debug(f"Removed PDF status entry for deleted file: {session_id}")
+                    
                     os.remove(filepath)
                     deleted_count += 1
                     logger.debug(f"Auto-deleted old file: {filename} (age: {file_age/3600:.1f}h)")

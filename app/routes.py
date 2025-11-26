@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from flask import render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
 import uuid
-from app import app, logger
+from app import app, socketio, logger
 from app.services.validation_service import process_validation_request
 from app.services.pdf_service import create_annotated_pdf
 from app.services.docx_service import convert_docx_to_pdf
@@ -52,11 +52,11 @@ def validate_references_api():
             
             # Buka kembali untuk diproses
             file_stream_for_processing = open(original_filepath, 'rb')
-            result = process_validation_request(request, file_stream_for_processing)
+            result = process_validation_request(request, file_stream_for_processing, socketio=socketio, session_id=session_id)
             file_stream_for_processing.close()
 
         elif 'text' in request.form and request.form['text'].strip():
-            result = process_validation_request(request, None)
+            result = process_validation_request(request, None, socketio=socketio, session_id=session_id)
         else:
             return jsonify({"error": "Tidak ada input yang diberikan."}), 400
 

@@ -1,6 +1,7 @@
 let currentResults = [];
 let currentFilter = 'invalid';
 let currentSessionId = null; // Store session_id untuk download
+let socket = null; // Socket.IO connection
 
 const form = document.getElementById('referenceForm');
 const fileInput = document.getElementById('fileInput');
@@ -10,6 +11,30 @@ const textInput = document.getElementById('textInput');
 const loadingSection = document.getElementById('loadingSection');
 const resultsSection = document.getElementById('resultsSection');
 const errorSection = document.getElementById('errorSection');
+
+// Initialize Socket.IO connection
+function initializeSocket() {
+    socket = io();
+    
+    // Listen for validation progress updates
+    socket.on('validation_progress', (data) => {
+        console.log('Progress update:', data);
+        updateProgressBar(data.progress, data.message);
+    });
+    
+    socket.on('connect', () => {
+        console.log('Socket.IO connected');
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('Socket.IO disconnected');
+    });
+}
+
+// Initialize socket on page load
+document.addEventListener('DOMContentLoaded', () => {
+    initializeSocket();
+});
 
 fileUploadArea.addEventListener('click', () => fileInput.click());
 fileUploadArea.addEventListener('dragover', handleDragOver);
@@ -76,9 +101,8 @@ async function validateReferences() {
     hideError();
     hideResults();
 
-    
-    // Start progress animation
-    startProgressAnimation();
+    // Reset progress bar untuk real-time updates
+    resetProgress();
 
     try {
         const response = await fetch('/api/validate', {
@@ -95,7 +119,7 @@ async function validateReferences() {
         }
 
         // Complete progress
-        completeProgress();
+        updateProgressBar(100, 'Proses selesai!');
         
         // Small delay to show completion
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -114,48 +138,23 @@ async function validateReferences() {
     }
 }
 
-function startProgressAnimation() {
-    const steps = [
-        { id: 'step1', duration: 2000, progress: 25, label: 'Mengekstrak referensi dari dokumen...' },
-        { id: 'step2', duration: 3000, progress: 50, label: 'Memisahkan entri referensi dengan AI...' },
-        { id: 'step3', duration: 5000, progress: 75, label: 'Menganalisis setiap referensi...' },
-        { id: 'step4', duration: 2000, progress: 95, label: 'Memvalidasi dengan database ScimagoJR...' }
-    ];
-    
-    let currentStep = 0;
-    
-    function animateStep() {
-        if (currentStep >= steps.length) return;
-        
-        const step = steps[currentStep];
-        const progressFill = document.getElementById('progressFill');
-        const progressPercentage = document.getElementById('progressPercentage');
-        const progressInfo = document.getElementById('progressInfo');
-        
-        // Update progress bar
-        progressFill.style.width = step.progress + '%';
-        progressPercentage.textContent = step.progress + '%';
-        progressInfo.textContent = step.label;
-        
-        // After duration, move to next
-        setTimeout(() => {
-            currentStep++;
-            animateStep();
-        }, step.duration);
-    }
-    
-    animateStep();
-}
-
-function completeProgress() {
+// Update progress bar with percentage and message
+function updateProgressBar(progress, message) {
     const progressFill = document.getElementById('progressFill');
     const progressPercentage = document.getElementById('progressPercentage');
     const progressInfo = document.getElementById('progressInfo');
     
-    // Set to 100%
-    progressFill.style.width = '100%';
-    progressPercentage.textContent = '100%';
-    progressInfo.textContent = 'Proses selesai! Menampilkan hasil...';
+    if (progressFill && progressPercentage && progressInfo) {
+        progressFill.style.width = progress + '%';
+        progressPercentage.textContent = progress + '%';
+        progressInfo.textContent = message;
+    }
+}
+
+function startProgressAnimation() {
+    // Deprecated - now using real-time updates via WebSocket
+    // Keep for backward compatibility
+    updateProgressBar(0, 'Memulai proses validasi...');
 }
 
 function resetProgress() {

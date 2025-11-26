@@ -1,6 +1,7 @@
 import logging
 import os
 from flask import Flask
+from flask_socketio import SocketIO
 from config import Config
 
 # Konfigurasi logging
@@ -18,6 +19,9 @@ app = Flask(__name__,
             template_folder=os.path.join(basedir, 'templates'),
             static_folder=os.path.join(basedir, 'static'))
 app.config.from_object(Config)
+
+# Initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Import routes setelah app dibuat (untuk menghindari circular import)
 from app import routes

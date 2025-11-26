@@ -1,6 +1,7 @@
 import logging
 import re
 from werkzeug.utils import secure_filename
+from flask_socketio import emit
 from config import Config
 from app.services.ai_service import split_references_with_ai, analyze_references_with_ai
 from app.services.scimago_service import search_journal_in_scimago
@@ -13,7 +14,30 @@ from app.utils.text_utils import find_references_section
 logger = logging.getLogger(__name__)
 
 
-def process_validation_request(request, saved_file_stream=None):
+def process_validation_request(request, saved_file_stream=None, socketio=None, session_id=None):
+    """
+    Process validation request with optional real-time progress updates via SocketIO.
+    
+    Args:
+        request: Flask request object
+        saved_file_stream: Optional file stream
+        socketio: Optional SocketIO instance for progress updates
+        session_id: Optional session ID for client identification
+    """
+    def emit_progress(step, message, progress):
+        """Helper to emit progress if socketio is available"""
+        if socketio and session_id:
+            socketio.emit('validation_progress', {
+                'step': step,
+                'message': message,
+                'progress': progress,
+                'session_id': session_id
+            })
+            logger.info(f"Progress emit: {message} ({progress}%)")
+    
+    # Step 1: Extract references
+    emit_progress('extract', 'Mengekstrak referensi dari dokumen...', 10)
+    
     # Langkah 1: Dapatkan SELURUH BLOK TEKS daftar pustaka dari input
     references_block, error = _get_references_from_request(request, saved_file_stream)
     if error:
@@ -21,7 +45,12 @@ def process_validation_request(request, saved_file_stream=None):
     if not references_block:
         return {"error": "Tidak ada konten referensi yang dapat diproses."}
     
+    emit_progress('extract', 'Berhasil mengekstrak teks referensi', 20)
+    
     try:
+        # Step 2: Split references with AI
+        emit_progress('split', 'Memisahkan entri referensi dengan AI...', 30)
+        
         # Langkah 2: AI Call #1 - Split references
         references_list, error = split_references_with_ai(references_block)
         if error:
@@ -30,6 +59,9 @@ def process_validation_request(request, saved_file_stream=None):
         if not references_list:
             return {"error": "Tidak ada referensi individual yang dapat diidentifikasi oleh AI."}
 
+        total_refs = len(references_list)
+        emit_progress('split', f'Berhasil memisahkan {total_refs} referensi', 40)
+        
         # Langkah 3: Ambil parameter validasi dari request
         min_ref_count = request.form.get('min_ref_count', Config.MIN_REFERENCE_COUNT, type=int)
         
@@ -56,13 +88,26 @@ def process_validation_request(request, saved_file_stream=None):
             type=float
         )
         
+        # Step 3: Analyze references with AI
+        emit_progress('analyze', f'Menganalisis {total_refs} referensi dengan AI...', 50)
+        
         # Langkah 4: AI Call #2 - Analyze references
         batch_results_json, detected_style, error = analyze_references_with_ai(references_list, style, year_range)
         if error:
             return {"error": error}
         
+        emit_progress('analyze', f'Selesai analisis AI', 70)
+        
+        # Step 4: Process and match with database
+        emit_progress('validate', 'Memvalidasi dengan database ScimagoJR & Scopus...', 80)
+        
         # Langkah 5: Process AI response & match dengan Scimago
         detailed_results = _process_ai_response(batch_results_json, references_list, style, detected_style)
+        
+        emit_progress('validate', 'Validasi database selesai', 90)
+        
+        # Step 5: Generate summary
+        emit_progress('finalize', 'Menyusun hasil dan rekomendasi...', 95)
         
         # Langkah 6: Generate summary & recommendations
         summary, recommendations = _generate_summary_and_recommendations(
@@ -73,6 +118,8 @@ def process_validation_request(request, saved_file_stream=None):
             min_ref_count
         )
 
+        emit_progress('complete', 'Validasi selesai!', 100)
+        
         # Sertakan year_range ke hasil agar PDF annotator dapat menggunakannya
         return {
             "success": True,

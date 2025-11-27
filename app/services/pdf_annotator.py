@@ -757,10 +757,13 @@ def annotate_pdf_page(
                 
                 badge_text = " & ".join(index_badges) if index_badges else "Tidak Terindeks"
                 
+                # Format tahun dengan status INVALID jika outdated
+                year_display = f"{parsed_year} [INVALID]" if status == 'invalid' else str(parsed_year)
+                
                 comment_text = (
                     f"[{ref_number}] Journal - {status.upper()}\n"
                     f"Jurnal: {journal_name}\n"
-                    f"Tahun: {parsed_year}\n"
+                    f"Tahun: {year_display}\n"
                     f"Indeks: {badge_text}\n"
                 )
                 if scimago_link:
@@ -779,10 +782,13 @@ def annotate_pdf_page(
                         index_info.append("Scopus")
                     note_text = f"\nCatatan: Terindeks di {' & '.join(index_info)}"
                 
+                # Format tahun dengan status INVALID jika outdated
+                year_display = f"{parsed_year} [INVALID]" if status == 'invalid' else str(parsed_year)
+                
                 comment_text = (
                     f"[{ref_number}] {ref_type.title()}\n"
                     f"Sumber: {journal_name}\n"
-                    f"Tahun: {parsed_year}\n"
+                    f"Tahun: {year_display}\n"
                     f"Status: {status.upper()}{note_text}\n"
                 )
             
@@ -1014,7 +1020,7 @@ def annotate_pdf_page(
                     h = page.add_highlight_annot(year_rect)
                     h.set_colors(stroke=YEAR_RGB, fill=YEAR_RGB)
                     
-                    note_text = f"Tahun: {year_str}\nMinimal: {min_year}\nStatus: Outdated"
+                    note_text = f"Tahun: {year_str} [INVALID]\nMinimal: {min_year}\nStatus: Outdated"
                     h.set_info(title="Tahun Outdated", content=note_text)
                     h.update()
                     

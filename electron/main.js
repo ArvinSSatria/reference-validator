@@ -115,7 +115,7 @@ async function startFlaskServer() {
 }
 
 // Function to wait for Flask server to be ready
-function waitForServer(maxAttempts = 30) {
+function waitForServer(maxAttempts = 60) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
     const interval = setInterval(async () => {
@@ -128,7 +128,7 @@ function waitForServer(maxAttempts = 30) {
           port: FLASK_PORT,
           path: '/',
           method: 'GET',
-          timeout: 1000
+          timeout: 2000
         };
 
         const req = http.request(options, (res) => {

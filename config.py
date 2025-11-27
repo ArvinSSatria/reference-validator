@@ -27,8 +27,8 @@ class Config:
     
     UPLOAD_FOLDER = 'uploads'
     
-    # Konfigurasi API
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    # Konfigurasi API (hardcoded for testing/demo purposes)
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAGrqDE_7yztnmrEvvtDZNJRUbn2VFYwOA")
 
     # Pengaturan Logika Validasi
     MIN_REFERENCE_COUNT = 10

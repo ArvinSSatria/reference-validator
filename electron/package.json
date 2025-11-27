@@ -49,7 +49,7 @@
     ],
     "win": {
       "target": [
-        "portable"
+        "nsis"
       ],
       "icon": "assets/icon.png",
       "sign": null,

@@ -746,6 +746,11 @@ def annotate_pdf_page(
             scopus_link = result.get('scopus_link', '')
             parsed_year = result.get('parsed_year', 'N/A')
             
+            # Calculate min_year for validation info
+            top_level_year = validation_results.get('year_range')
+            min_year_threshold = int(top_level_year) if top_level_year else 5
+            min_year = datetime.now().year - min_year_threshold
+            
             # Build comment text berdasarkan tipe
             if ref_type == 'journal':
                 # Buat badge text
@@ -757,13 +762,10 @@ def annotate_pdf_page(
                 
                 badge_text = " & ".join(index_badges) if index_badges else "Tidak Terindeks"
                 
-                # Format tahun dengan status INVALID jika outdated
-                year_display = f"{parsed_year} [INVALID]" if status == 'invalid' else str(parsed_year)
-                
                 comment_text = (
                     f"[{ref_number}] Journal - {status.upper()}\n"
                     f"Jurnal: {journal_name}\n"
-                    f"Tahun: {year_display}\n"
+                    f"Tahun: {parsed_year}\n"
                     f"Indeks: {badge_text}\n"
                 )
                 if scimago_link:
@@ -782,13 +784,10 @@ def annotate_pdf_page(
                         index_info.append("Scopus")
                     note_text = f"\nCatatan: Terindeks di {' & '.join(index_info)}"
                 
-                # Format tahun dengan status INVALID jika outdated
-                year_display = f"{parsed_year} [INVALID]" if status == 'invalid' else str(parsed_year)
-                
                 comment_text = (
                     f"[{ref_number}] {ref_type.title()}\n"
                     f"Sumber: {journal_name}\n"
-                    f"Tahun: {year_display}\n"
+                    f"Tahun: {parsed_year}\n"
                     f"Status: {status.upper()}{note_text}\n"
                 )
             

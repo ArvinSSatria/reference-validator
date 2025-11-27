@@ -78,7 +78,7 @@ def create_annotated_pdf(original_filepath, validation_results):
             "PATTENS_BLUE": (210/255.0, 236/255.0, 238/255.0),
             "INDEXED_RGB": (208/255.0, 233/255.0, 222/255.0),
             "PINK_RGB": (251/255.0, 215/255.0, 222/255.0),
-            "CORNFLOWER_BLUE": (101/255.0, 147/255.0, 245/255.0),
+            "CORNFLOWER_BLUE": (176/255.0, 224/255.0, 230/255.0),
             "YEAR_RGB": (255/255.0, 105/255.0, 97/255.0)
         }
 

@@ -449,9 +449,11 @@ function updateTabCounts(results) {
     const validCount = results.filter(r => r.status === 'valid').length;
     const invalidCount = results.filter(r => r.status !== 'valid').length;
     const indexedCount = results.filter(r => r.is_indexed === true).length;
+    const allCount = results.length;
     document.getElementById('validCount').textContent = validCount;
     document.getElementById('invalidCount').textContent = invalidCount;
     document.getElementById('indexedCount').textContent = indexedCount;
+    document.getElementById('allCount').textContent = allCount;
 }
 
 function showTab(event, filter) {
@@ -465,6 +467,7 @@ function filterResults(results, filter) {
     if (filter === 'valid') return results.filter(r => r.status === 'valid');
     if (filter === 'invalid') return results.filter(r => r.status !== 'valid');
     if (filter === 'indexed') return results.filter(r => r.is_indexed === true);
+    if (filter === 'all') return results;
     return results;
 }
 

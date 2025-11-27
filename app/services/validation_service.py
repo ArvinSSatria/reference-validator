@@ -102,7 +102,7 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
         emit_progress('validate', 'Memvalidasi dengan database ScimagoJR & Scopus...', 80)
         
         # Langkah 5: Process AI response & match dengan Scimago
-        detailed_results = _process_ai_response(batch_results_json, references_list, style, detected_style)
+        detailed_results = _process_ai_response(batch_results_json, references_list, style, detected_style, year_range)
         
         emit_progress('validate', 'Validasi database selesai', 90)
         
@@ -170,7 +170,7 @@ def _get_references_from_request(request, file_stream=None):
     return None, "Maaf, tidak ada file atau teks yang diberikan. Mohon pilih file PDF/DOCX atau masukkan teks referensi secara manual."
 
 
-def _process_ai_response(batch_results_json, references_list, original_style, detected_style):
+def _process_ai_response(batch_results_json, references_list, original_style, detected_style, year_range):
     detailed_results = []
     
     ACCEPTED_SCIMAGO_TYPES = {'journal', 'book series', 'trade journal', 'conference and proceeding'}
@@ -298,8 +298,17 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
                 bibtex_string = None
                 bibtex_available = False
         
+        # Check year validity
+        is_year_valid = True
+        if parsed_year and isinstance(parsed_year, int):
+            from datetime import datetime
+            min_year = datetime.now().year - year_range
+            if parsed_year < min_year:
+                is_year_valid = False
+        
         if is_indexed and ref_type in ACCEPTED_SCIMAGO_TYPES:
-            is_overall_valid = True
+            # Status valid hanya jika terindeks DAN tahun valid
+            is_overall_valid = is_year_valid
             
             # Buat keterangan indeks
             index_notes = []
@@ -310,11 +319,14 @@ def _process_ai_response(batch_results_json, references_list, original_style, de
             
             index_text = " dan ".join(index_notes)
             
-            if ai_assessment_valid:
-                final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' {index_text} dan memenuhi kriteria kualitas)."
+            if is_year_valid:
+                if ai_assessment_valid:
+                    final_feedback += f" Status: VALID (Sumber tipe '{ref_type}' {index_text} dan memenuhi kriteria kualitas)."
+                else:
+                    # Tetap VALID meskipun format tidak sempurna
+                    final_feedback += f" Status: VALID (Sumber {index_text})."
             else:
-                # Tetap VALID meskipun format/tahun tidak sempurna
-                final_feedback += f" Status: VALID (Sumber {index_text})."
+                final_feedback += f" Status: INVALID (Sumber {index_text}, namun tahun terlalu lama: {parsed_year} < {min_year})."
         elif is_indexed:
             final_feedback += f" Status: INVALID (Sumber ditemukan di database, namun tipenya ('{ref_type}') tidak umum digunakan sebagai referensi utama)."
         elif ref_type in {'website', 'report'}:

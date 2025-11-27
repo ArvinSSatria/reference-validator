@@ -31,10 +31,14 @@
     "directories": {
       "output": "dist"
     },
+    "asarUnpack": [
+      "flask_server/**/*"
+    ],
     "files": [
       "main.js",
       "preload.js",
       "assets/**/*",
+      "flask_server/**/*",
       "../app/**/*",
       "../static/**/*",
       "../templates/**/*",

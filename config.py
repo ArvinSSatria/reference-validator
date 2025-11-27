@@ -1,10 +1,20 @@
 import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Set Google API Key untuk kompatibilitas dengan google libraries
 os.environ['GOOGLE_API_KEY'] = os.getenv("GEMINI_API_KEY", "")
+
+# Determine base directory (works for both script and PyInstaller bundle)
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable (PyInstaller)
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    # Running as script
+    BASE_DIR = Path(__file__).parent.absolute()
 
 class Config:
     # Konfigurasi Flask
@@ -13,7 +23,7 @@ class Config:
     
     # Konfigurasi Aplikasi
     ALLOWED_EXTENSIONS = {'docx', 'pdf'}
-    SCIMAGO_FILE_PATH = 'data/scimagojr 2024.csv'
+    SCIMAGO_FILE_PATH = str(BASE_DIR / 'data' / 'scimagojr 2024.csv')
     
     UPLOAD_FOLDER = 'uploads'
     

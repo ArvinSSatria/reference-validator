@@ -35,11 +35,9 @@ async function isPortInUse(port) {
 // Function to start Flask server
 async function startFlaskServer() {
   const appPath = getAppPath();
-  const pythonScript = path.join(appPath, 'run.py');
   
   console.log('Starting Flask server...');
   console.log('App path:', appPath);
-  console.log('Python script:', pythonScript);
 
   // Check if port is already in use
   const portInUse = await isPortInUse(FLASK_PORT);
@@ -48,18 +46,38 @@ async function startFlaskServer() {
     return null;
   }
 
-  // Determine Python command (try python, python3, py)
-  const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
-
-  try {
+  // Determine Flask executable path
+  let flaskExecutable;
+  if (isDev) {
+    // In development, use Python script
+    const pythonScript = path.join(appPath, 'run.py');
+    const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+    console.log('Development mode - using Python:', pythonScript);
+    
     flaskProcess = spawn(pythonCommand, [pythonScript], {
       cwd: appPath,
+      env: {
+        ...process.env,
+        FLASK_ENV: 'development',
+        PYTHONUNBUFFERED: '1'
+      }
+    });
+  } else {
+    // In production, use bundled executable from app.asar.unpacked
+    flaskExecutable = path.join(appPath, 'app.asar.unpacked', 'flask_server', 'flask_server.exe');
+    console.log('Production mode - using executable:', flaskExecutable);
+    
+    flaskProcess = spawn(flaskExecutable, [], {
+      cwd: path.join(appPath, 'app.asar.unpacked', 'flask_server'),
       env: {
         ...process.env,
         FLASK_ENV: 'production',
         PYTHONUNBUFFERED: '1'
       }
     });
+  }
+
+  try {
 
     flaskProcess.stdout.on('data', (data) => {
       console.log(`Flask: ${data}`);

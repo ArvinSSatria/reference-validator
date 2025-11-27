@@ -20,8 +20,8 @@ app = Flask(__name__,
             static_folder=os.path.join(basedir, 'static'))
 app.config.from_object(Config)
 
-# Initialize SocketIO
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Initialize SocketIO with explicit async_mode for PyInstaller
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Import routes setelah app dibuat (untuk menghindari circular import)
 from app import routes

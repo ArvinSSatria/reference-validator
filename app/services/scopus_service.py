@@ -4,6 +4,7 @@ import pandas as pd
 import difflib
 import pickle
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 from config import Config
@@ -144,8 +145,16 @@ def clean_scopus_title(title):
 def load_scopus_data():
     global SCOPUS_DATA
     
+    # Determine base directory (works for both script and PyInstaller bundle)
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable (PyInstaller)
+        base_dir = Path(sys._MEIPASS)
+    else:
+        # Running as script
+        base_dir = Path(__file__).parent.parent.parent.absolute()
+    
     # Setup paths - menggunakan file scopus
-    csv_file = Path("data/scopus 2025.csv")
+    csv_file = base_dir / "data" / "scopus 2025.csv"
     cache_file = csv_file.with_suffix('.scopus.pkl')
     
     # Try loading from cache first

@@ -59,4 +59,10 @@ desktop.ini
 # Electron
 electron/node_modules/
 electron/dist/
+electron/flask_server/
 electron/package-lock.json
+
+# PyInstaller
+build/
+dist/
+*.spec

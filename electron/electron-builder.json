@@ -25,6 +25,11 @@
       "from": "../uploads",
       "to": "uploads",
       "filter": ["**/*"]
+    },
+    {
+      "from": "flask_server",
+      "to": "flask_server",
+      "filter": ["**/*"]
     }
   ],
   "win": {

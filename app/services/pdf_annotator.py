@@ -392,8 +392,8 @@ def annotate_pdf_page(
     PATTENS_BLUE = colors['PATTENS_BLUE']
     INDEXED_RGB = colors['INDEXED_RGB']
     PINK_RGB = colors['PINK_RGB']
+    CORNFLOWER_BLUE = colors['CORNFLOWER_BLUE']
     YEAR_RGB = colors['YEAR_RGB']
-    MISSING_RGB = colors['MISSING_RGB']
 
     # BAGIAN 1: DETEKSI HEADING DAN SUMMARY
     # Cari keyword references di halaman ini HANYA jika line_num sudah tervalidasi
@@ -728,14 +728,14 @@ def annotate_pdf_page(
             
             # Logika warna:
             # - Hijau (INDEXED_RGB): Journal terindeks di Scimago atau Scopus
-            # - Pink (PINK_RGB): Journal tidak terindeks
-            # - Kuning (YEAR_RGB): Book, Conference, dan tipe lainnya
+            # - Cornflower Blue (CORNFLOWER_BLUE): Journal tidak terindeks
+            # - Pink (PINK_RGB): Book, Conference, dan tipe lainnya
             if is_indexed:
                 color = INDEXED_RGB  # Hijau untuk yang terindeks
             elif ref_type == 'journal':
-                color = PINK_RGB  # Pink untuk journal tidak terindeks
+                color = CORNFLOWER_BLUE  # Cornflower blue untuk journal tidak terindeks
             else:
-                color = MISSING_RGB  # Kuning untuk book, conference, website, dll
+                color = PINK_RGB  # Pink untuk book, conference, website, dll
             
             highlight.set_colors(stroke=color, fill=color)
             

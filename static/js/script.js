@@ -238,22 +238,10 @@ function displayResults(data) {
     const downloadBibtexAllBtn = document.getElementById('downloadBibtexAllBtn');
     
     if (data.has_file) {
+        // Tombol download selalu enabled - PDF dibuat on-demand saat klik
         downloadBtn.style.display = 'inline-block';
-        
-        // Check PDF status
-        if (data.pdf_status === 'processing') {
-            // PDF masih diproses di background
-            downloadBtn.disabled = true;
-            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyiapkan PDF...';
-        } else if (data.pdf_status === 'ready') {
-            // PDF sudah ready
-            downloadBtn.disabled = false;
-            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
-        } else {
-            // Default atau error - download on-demand
-            downloadBtn.disabled = false;
-            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
-        }
+        downloadBtn.disabled = false;
+        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
     } else {
         // Untuk text input, sembunyikan tombol download PDF
         downloadBtn.style.display = 'none';
@@ -270,27 +258,6 @@ function displayResults(data) {
 }
 
 // Function untuk update status PDF generation dari SocketIO
-function updatePDFStatus(status, message) {
-    const downloadBtn = document.getElementById('downloadBtn');
-    if (!downloadBtn || downloadBtn.style.display === 'none') return;
-    
-    console.log('Updating PDF status:', status, message);
-    
-    if (status === 'processing') {
-        downloadBtn.disabled = true;
-        downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyiapkan PDF...';
-    } else if (status === 'ready') {
-        downloadBtn.disabled = false;
-        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
-        // Optional: Show success notification
-        console.log('PDF ready for download!');
-    } else if (status === 'error') {
-        downloadBtn.disabled = false;
-        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
-        // Download akan dibuat on-demand
-    }
-}
-
 function displaySummary(summary) {
     const summaryGrid = document.getElementById('summaryGrid');
     summaryGrid.innerHTML = `

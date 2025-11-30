@@ -2,7 +2,6 @@ import os
 import io
 import json
 import time
-import threading
 from datetime import datetime, timedelta
 from flask import render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
@@ -26,8 +25,6 @@ def validate_references_api():
         # Auto-cleanup file lama (> 1 jam) dari folder uploads
         if Config.AUTO_CLEANUP_ENABLED:
             _cleanup_old_upload_files(max_age_hours=Config.AUTO_CLEANUP_MAX_AGE_HOURS)
-            # Cleanup pdf_generation_status dict juga (5 menit)
-            _cleanup_pdf_status_dict(max_age_hours=5/60)
 
         # Buat ID unik untuk sesi validasi ini
         session_id = str(uuid.uuid4())
@@ -280,42 +277,6 @@ def _cleanup_session_files():
                 logger.warning(f"Gagal menghapus file sesi lama {filepath}: {e}")
 
 
-def _cleanup_pdf_status_dict(max_age_hours=2):
-    """
-    Menghapus entry lama dari pdf_generation_status dict.
-    Entry yang sudah lebih dari max_age_hours akan dihapus untuk mencegah memory leak.
-    """
-    try:
-        current_time = time.time()
-        max_age_seconds = max_age_hours * 3600
-        sessions_to_remove = []
-        
-        # Cari session yang sudah kadaluarsa
-        for session_id in list(pdf_generation_status.keys()):
-            # Cek apakah file annotated masih ada
-            upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
-            annotated_filepath = os.path.join(upload_folder, f"{session_id}_annotated.pdf")
-            
-            # Jika file sudah tidak ada atau sudah terlalu lama
-            if not os.path.exists(annotated_filepath):
-                sessions_to_remove.append(session_id)
-            elif os.path.exists(annotated_filepath):
-                file_age = current_time - os.path.getmtime(annotated_filepath)
-                if file_age > max_age_seconds:
-                    sessions_to_remove.append(session_id)
-        
-        # Hapus entry dari dict
-        for session_id in sessions_to_remove:
-            del pdf_generation_status[session_id]
-            logger.debug(f"Removed old PDF status entry: {session_id}")
-        
-        if sessions_to_remove:
-            logger.info(f"Cleaned up {len(sessions_to_remove)} old PDF status entries")
-            
-    except Exception as e:
-        logger.warning(f"Error during PDF status dict cleanup: {e}")
-
-
 def _cleanup_old_upload_files(max_age_hours=1):
     try:
         upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
@@ -338,14 +299,6 @@ def _cleanup_old_upload_files(max_age_hours=1):
             
             if file_age > max_age_seconds:
                 try:
-                    # Extract session_id dari filename jika ada
-                    if '_' in filename:
-                        session_id = filename.split('_')[0]
-                        # Hapus entry dari pdf_generation_status jika ada
-                        if session_id in pdf_generation_status:
-                            del pdf_generation_status[session_id]
-                            logger.debug(f"Removed PDF status entry for deleted file: {session_id}")
-                    
                     os.remove(filepath)
                     deleted_count += 1
                     logger.debug(f"Auto-deleted old file: {filename} (age: {file_age/3600:.1f}h)")

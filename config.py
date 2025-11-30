@@ -27,8 +27,10 @@ class Config:
     
     UPLOAD_FOLDER = 'uploads'
     
-    # Konfigurasi API (hardcoded for testing/demo purposes)
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAGrqDE_7yztnmrEvvtDZNJRUbn2VFYwOA")
+    # Konfigurasi API (read from .env file)
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY not found in environment variables. Please create .env file with GEMINI_API_KEY.")
 
     # Pengaturan Logika Validasi
     MIN_REFERENCE_COUNT = 10

@@ -278,15 +278,23 @@ def download_report_api():
         # Jika PDF belum ready, generate on-the-fly (fallback)
         if not pdf_ready:
             logger.info(f"[Download] Generating PDF on-the-fly for session {session_id or 'legacy'}")
+            logger.info(f"[Download] Original filepath: {original_filepath}")
+            logger.info(f"[Download] File exists: {os.path.exists(original_filepath)}")
+            
             pdf_to_annotate_path = original_filepath
             is_temp_pdf = False
 
             if original_filepath.lower().endswith('.docx'):
+                logger.info(f"[Download] Converting DOCX to PDF first...")
                 pdf_path, error = convert_docx_to_pdf(original_filepath)
-                if error: return jsonify({"error": error}), 500
+                if error: 
+                    logger.error(f"[Download] DOCX conversion error: {error}")
+                    return jsonify({"error": error}), 500
                 pdf_to_annotate_path = pdf_path
                 is_temp_pdf = True
+                logger.info(f"[Download] DOCX converted to: {pdf_to_annotate_path}")
 
+            logger.info(f"[Download] Creating annotated PDF...")
             annotated_pdf_bytes, error = create_annotated_pdf(
                 pdf_to_annotate_path, 
                 validation_results
@@ -295,13 +303,18 @@ def download_report_api():
             if is_temp_pdf and os.path.exists(pdf_to_annotate_path):
                 os.remove(pdf_to_annotate_path)
             
-            if error: return jsonify({"error": error}), 500
+            if error: 
+                logger.error(f"[Download] Annotation error: {error}")
+                return jsonify({"error": error}), 500
 
+            logger.info(f"[Download] PDF created successfully, size: {len(annotated_pdf_bytes)} bytes")
+            
             # Gunakan nama file asli dari validation results jika ada
             original_filename = validation_results.get('input_filename', os.path.basename(original_filepath))
             base_name, _ = os.path.splitext(original_filename)
             download_filename = f"annotated_{base_name}.pdf"
 
+            logger.info(f"[Download] Sending PDF to client: {download_filename}")
             return send_file(
                 io.BytesIO(annotated_pdf_bytes),
                 mimetype='application/pdf',

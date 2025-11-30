@@ -1,11 +1,9 @@
 import logging
 import os
 import io
-import shutil
-import subprocess
 import docx
+import fitz  # PyMuPDF
 import xml.etree.ElementTree as ET
-from docx2pdf import convert
 from app.utils.text_utils import is_likely_reference
 
 logger = logging.getLogger(__name__)
@@ -111,74 +109,74 @@ def extract_references_from_docx(file_stream):
 
 
 def convert_docx_to_pdf(docx_path):
+    """
+    Convert DOCX to PDF using PyMuPDF (pure Python, no MS Word needed).
+    Returns: (pdf_bytes_stream, error_message)
+    """
     try:
-        # Tentukan path output
-        pdf_path = os.path.splitext(docx_path)[0] + ".pdf"
+        logger.info(f"Converting DOCX to PDF: {docx_path}")
         
-        logger.info(f"Mengonversi '{docx_path}' ke '{pdf_path}'...")
+        # Read DOCX and extract all text
+        doc = docx.Document(docx_path)
+        text_content = []
         
-        try:
-            convert(docx_path, pdf_path)
-        except Exception as primary_ex:
-            # Tangani kasus umum COM CoInitialize error (docx2pdf via MS Word)
-            msg = str(primary_ex)
-            logger.warning(f"docx2pdf gagal: {msg}")
+        for paragraph in doc.paragraphs:
+            text = get_paragraph_text(paragraph).strip()
+            if text:
+                text_content.append(text)
+        
+        # Create PDF using PyMuPDF
+        pdf_document = fitz.open()  # Create new PDF
+        page = pdf_document.new_page(width=595, height=842)  # A4 size
+        
+        # Write text to PDF
+        font_size = 11
+        line_height = font_size + 4
+        y_position = 50
+        margin = 50
+        max_width = 595 - (2 * margin)
+        
+        for text in text_content:
+            # Simple text wrapping
+            words = text.split()
+            line = ""
             
-            # Jika error berisi CoInitialize, coba inisialisasi COM secara eksplisit (Windows)
-            if 'CoInitialize' in msg or "CoInitialize has not been called" in msg:
-                try:
-                    import pythoncom
-                    pythoncom.CoInitialize()
-                    logger.info("Memanggil pythoncom.CoInitialize() dan mencoba lagi konversi DOCX...")
-                    convert(docx_path, pdf_path)
-                except Exception as com_ex:
-                    logger.warning(f"Gagal setelah CoInitialize retry: {com_ex}")
-                    
-                    # Coba fallback ke LibreOffice/soffice jika tersedia
-                    if shutil.which('soffice'):
-                        try:
-                            logger.info("Mencoba konversi menggunakan LibreOffice (soffice)...")
-                            subprocess.check_call([
-                                shutil.which('soffice'),
-                                '--headless',
-                                '--convert-to', 'pdf',
-                                '--outdir', os.path.dirname(pdf_path),
-                                docx_path
-                            ])
-                        except Exception as lo_ex:
-                            logger.error(f"Fallback LibreOffice gagal: {lo_ex}", exc_info=True)
-                            raise com_ex
+            for word in words:
+                test_line = line + word + " "
+                # Rough estimate of text width
+                if len(test_line) * (font_size * 0.5) > max_width:
+                    if line:
+                        page.insert_text((margin, y_position), line.strip(), fontsize=font_size)
+                        y_position += line_height
+                        line = word + " "
                     else:
-                        raise com_ex
-            else:
-                # Jika bukan CoInitialize, coba fallback ke LibreOffice
-                if shutil.which('soffice'):
-                    try:
-                        logger.info("docx2pdf gagal, mencoba fallback LibreOffice (soffice)...")
-                        subprocess.check_call([
-                            shutil.which('soffice'),
-                            '--headless',
-                            '--convert-to', 'pdf',
-                            '--outdir', os.path.dirname(pdf_path),
-                            docx_path
-                        ])
-                    except Exception as lo_ex:
-                        logger.error(f"Fallback LibreOffice gagal: {lo_ex}", exc_info=True)
-                        raise primary_ex
+                        # Word too long, force break
+                        page.insert_text((margin, y_position), word, fontsize=font_size)
+                        y_position += line_height
+                        line = ""
                 else:
-                    raise primary_ex
+                    line = test_line
+            
+            # Write remaining line
+            if line:
+                page.insert_text((margin, y_position), line.strip(), fontsize=font_size)
+                y_position += line_height
+            
+            # Add extra space after paragraph
+            y_position += line_height / 2
+            
+            # Create new page if needed
+            if y_position > 792:  # Near bottom of page
+                page = pdf_document.new_page(width=595, height=842)
+                y_position = 50
         
-        if os.path.exists(pdf_path):
-            logger.info("Konversi DOCX ke PDF berhasil.")
-            return pdf_path, None
-        else:
-            return None, "Konversi DOCX ke PDF gagal, file output tidak dibuat."
+        # Save to bytes
+        pdf_bytes = pdf_document.tobytes()
+        pdf_document.close()
+        
+        logger.info("DOCX to PDF conversion successful using PyMuPDF")
+        return io.BytesIO(pdf_bytes), None
             
     except Exception as e:
-        logger.error(f"Error saat mengonversi DOCX ke PDF: {e}", exc_info=True)
-        help_msg = (
-            "Gagal mengonversi DOCX ke PDF. Jika Anda menggunakan Windows, pastikan Microsoft Word terinstal "
-            "dan aplikasi berjalan setidaknya sekali. Jika server/headless, pasang LibreOffice dan coba lagi. "
-            f"Detail teknis: {e}"
-        )
-        return None, help_msg
+        logger.error(f"Error converting DOCX to PDF: {e}", exc_info=True)
+        return None, f"Gagal mengonversi DOCX ke PDF: {str(e)}"

@@ -155,18 +155,23 @@ def download_report_api():
         logger.info(f"[Download] Original filepath: {original_filepath}")
         logger.info(f"[Download] File exists: {os.path.exists(original_filepath)}")
         
-        pdf_to_annotate_path = original_filepath
-        is_temp_pdf = False
-
+        # Handle DOCX conversion (returns io.BytesIO)
         if original_filepath.lower().endswith('.docx'):
             logger.info(f"[Download] Converting DOCX to PDF first...")
-            pdf_path, error = convert_docx_to_pdf(original_filepath)
+            pdf_bytes_stream, error = convert_docx_to_pdf(original_filepath)
             if error: 
                 logger.error(f"[Download] DOCX conversion error: {error}")
                 return jsonify({"error": error}), 500
-            pdf_to_annotate_path = pdf_path
-            is_temp_pdf = True
-            logger.info(f"[Download] DOCX converted to: {pdf_to_annotate_path}")
+            
+            # Save stream to temp file untuk annotasi
+            temp_pdf_path = original_filepath.replace('.docx', '_temp.pdf')
+            with open(temp_pdf_path, 'wb') as f:
+                f.write(pdf_bytes_stream.getvalue())
+            
+            pdf_to_annotate_path = temp_pdf_path
+            logger.info(f"[Download] DOCX converted, temp PDF: {pdf_to_annotate_path}")
+        else:
+            pdf_to_annotate_path = original_filepath
 
         logger.info(f"[Download] Creating annotated PDF...")
         annotated_pdf_bytes, error = create_annotated_pdf(
@@ -174,7 +179,8 @@ def download_report_api():
             validation_results
         )
         
-        if is_temp_pdf and os.path.exists(pdf_to_annotate_path):
+        # Cleanup temp PDF dari DOCX conversion
+        if original_filepath.lower().endswith('.docx') and os.path.exists(pdf_to_annotate_path):
             os.remove(pdf_to_annotate_path)
         
         if error: 

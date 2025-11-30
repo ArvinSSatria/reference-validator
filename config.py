@@ -27,10 +27,14 @@ class Config:
     
     UPLOAD_FOLDER = 'uploads'
     
-    # Konfigurasi API (read from .env file)
+    # Konfigurasi API (dengan fallback untuk production)
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY not found in environment variables. Please create .env file with GEMINI_API_KEY.")
+        # Fallback untuk production/installer - GANTI KEY INI SEBELUM BUILD
+        GEMINI_API_KEY = "AIzaSyD9hS47rRJT8zd5sF0NmmxHA73kuBpZecM"
+    
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_key_here":
+        raise ValueError("GEMINI_API_KEY not configured. Please set in .env file or config.py")
 
     # Pengaturan Logika Validasi
     MIN_REFERENCE_COUNT = 10

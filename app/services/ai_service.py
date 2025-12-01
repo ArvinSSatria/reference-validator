@@ -17,6 +17,8 @@ def get_generative_model():
         return _MODEL_CACHE
     
     try:
+        if not Config.GEMINI_API_KEY:
+            raise Exception("GEMINI_API_KEY tidak ditemukan di environment/.env")
         genai.configure(api_key=Config.GEMINI_API_KEY, transport='rest')
         available_models = [
             m.name for m in genai.list_models() 

@@ -3,7 +3,22 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from multiple plausible locations to support packaged builds
+# 1) Current working directory
+# 2) Same directory as this config file
+# 3) Executable/temp directory when frozen (PyInstaller)
+_env_paths = []
+_env_paths.append(Path.cwd() / ".env")
+_env_paths.append(Path(__file__).parent / ".env")
+if getattr(sys, 'frozen', False):
+    try:
+        _env_paths.append(Path(sys._MEIPASS) / ".env")
+    except Exception:
+        pass
+for _p in _env_paths:
+    if _p.exists():
+        load_dotenv(dotenv_path=_p)
+        break
 
 # Set Google API Key untuk kompatibilitas dengan google libraries
 os.environ['GOOGLE_API_KEY'] = os.getenv("GEMINI_API_KEY", "")
@@ -27,14 +42,8 @@ class Config:
     
     UPLOAD_FOLDER = 'uploads'
     
-    # Konfigurasi API - WAJIB dari environment variable
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    if not GEMINI_API_KEY:
-        raise ValueError(
-            "GEMINI_API_KEY tidak ditemukan!\n"
-            "Untuk development: Buat file .env dengan GEMINI_API_KEY=your_key\n"
-            "Untuk production: Set environment variable sebelum build"
-        )
+    # Konfigurasi API - berasal dari environment/.env; validasi dilakukan saat digunakan
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
     # Pengaturan Logika Validasi
     MIN_REFERENCE_COUNT = 10

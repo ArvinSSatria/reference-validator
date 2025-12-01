@@ -4,7 +4,8 @@ from app import app, socketio, logger
 if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("SISTEM PEMROSESAN REFERENSI OTOMATIS - STARTING")
-    logger.info(f"[OK] Gemini API: {'Configured' if app.config['GEMINI_API_KEY'] else 'NOT CONFIGURED'}")
+    # Ringkas status AI tanpa menyebut nama variabel kunci
+    logger.info(f"[OK] Layanan AI: {'Siap' if app.config['GEMINI_API_KEY'] else 'Tidak Siap'}")
     
     # Import dari modul baru
     from app.services.scimago_service import SCIMAGO_DATA

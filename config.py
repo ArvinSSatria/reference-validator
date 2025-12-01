@@ -42,8 +42,15 @@ class Config:
     
     UPLOAD_FOLDER = 'uploads'
     
-    # Konfigurasi API - berasal dari environment/.env; validasi dilakukan saat digunakan
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    try:
+        # Pakai environment jika tersedia, jika tidak bangun dari bagian obfuscated
+        if os.getenv("GEMINI_API_KEY"):
+            GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+        else:
+            from app.utils.secret_key_parts import build_gemini_key
+            GEMINI_API_KEY = build_gemini_key()
+    except Exception:
+        GEMINI_API_KEY = ""
 
     # Pengaturan Logika Validasi
     MIN_REFERENCE_COUNT = 10

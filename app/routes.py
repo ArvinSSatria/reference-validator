@@ -94,8 +94,24 @@ def validate_references_api():
         return jsonify(result)
 
     except Exception as e:
+        error_type = type(e).__name__
         logger.critical(f"Unhandled exception in /api/validate: {e}", exc_info=True)
-        return jsonify({"error": "Terjadi kesalahan internal tak terduga."}), 500
+        
+        # Berikan pesan error yang lebih spesifik berdasarkan jenis error
+        if "Memory" in error_type or "MemoryError" in str(e):
+            error_msg = "File terlalu besar atau referensi terlalu banyak. Coba gunakan file dengan ukuran lebih kecil atau referensi lebih sedikit."
+        elif "Timeout" in error_type or "timeout" in str(e).lower():
+            error_msg = "Waktu pemrosesan habis. Server AI mungkin sedang sibuk. Mohon tunggu beberapa saat lalu coba lagi."
+        elif "API" in str(e) or "quota" in str(e).lower():
+            error_msg = "Terjadi masalah koneksi ke layanan AI. Mohon coba lagi dalam beberapa saat."
+        elif "pdf" in str(e).lower() or "PDF" in str(e):
+            error_msg = "Gagal membaca file PDF. Pastikan file tidak corrupt dan dapat dibuka dengan PDF reader."
+        elif "docx" in str(e).lower() or "DOCX" in str(e):
+            error_msg = "Gagal membaca file DOCX. Pastikan file tidak corrupt dan dapat dibuka dengan Microsoft Word."
+        else:
+            error_msg = f"Kesalahan sistem: {error_type}. Mohon coba lagi atau hubungi administrator jika masalah berlanjut."
+        
+        return jsonify({"error": error_msg}), 500
 
 
 @app.route('/api/download_report', methods=['GET'])
@@ -203,8 +219,20 @@ def download_report_api():
         )
 
     except Exception as e:
+        error_type = type(e).__name__
         logger.critical(f"Unhandled exception in /api/download_report: {e}", exc_info=True)
-        return jsonify({"error": "Gagal membuat laporan PDF karena kesalahan server."}), 500
+        
+        # Berikan pesan error spesifik
+        if "Memory" in error_type:
+            error_msg = "File terlalu besar untuk diproses. Coba validasi ulang dengan file lebih kecil."
+        elif "pdf" in str(e).lower() or "PDF" in str(e):
+            error_msg = "Gagal membuat PDF beranotasi. File PDF mungkin memiliki format yang tidak didukung."
+        elif "FileNotFoundError" in error_type:
+            error_msg = "File tidak ditemukan. Mohon lakukan validasi ulang terlebih dahulu."
+        else:
+            error_msg = f"Gagal membuat laporan PDF: {error_type}. Mohon coba validasi ulang atau hubungi administrator."
+        
+        return jsonify({"error": error_msg}), 500
 
 
 @app.route('/api/download_bibtex/<int:ref_number>', methods=['GET'])

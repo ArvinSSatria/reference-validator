@@ -90,6 +90,8 @@ npm start
 ### How to Use
 
 1. **Launch Application** - Double-click Desktop shortcut or find in Start Menu
+   
+   > 🛡️ **First launch only**: Windows Firewall may ask permission for Flask server (localhost:5000). Click **"Allow access"** to continue.
 
 2. **Choose Input Method**
    - Upload PDF/DOCX file (drag & drop or click, max 16MB)
@@ -261,6 +263,8 @@ Reference Validator adalah aplikasi desktop untuk validasi referensi akademik se
 ### Cara Penggunaan
 
 1. **Buka Aplikasi** - Klik shortcut di Desktop atau Start Menu
+   
+   > 🛡️ **Hanya peluncuran pertama**: Windows Firewall mungkin meminta izin untuk Flask server (localhost:5000). Klik **"Izinkan akses"** atau **"Allow access"** untuk melanjutkan.
 
 2. **Pilih Input**
    - Upload file PDF/DOCX (drag & drop, maks 16MB)

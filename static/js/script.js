@@ -2,6 +2,7 @@ let currentResults = [];
 let currentFilter = 'invalid';
 let currentSessionId = null; // Store session_id untuk download
 let socket = null; // Socket.IO connection
+let uploadedFile = null; // Store uploaded file untuk reuse saat revalidasi
 
 const form = document.getElementById('referenceForm');
 const fileInput = document.getElementById('fileInput');
@@ -74,7 +75,8 @@ fileUploadArea.addEventListener('drop', handleFileDrop);
 
 fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
-        displayFileName(e.target.files[0]);
+        uploadedFile = e.target.files[0]; // Simpan file untuk reuse
+        displayFileName(uploadedFile);
         textInput.value = '';
     }
 });
@@ -95,8 +97,9 @@ function handleFileDrop(e) {
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
+        uploadedFile = files[0]; // Simpan file untuk reuse
         fileInput.files = files;
-        displayFileName(files[0]);
+        displayFileName(uploadedFile);
         textInput.value = '';
     }
 }
@@ -123,7 +126,13 @@ form.addEventListener('submit', async (e) => {
 async function validateReferences() {
     const formData = new FormData(form);
 
-    if (!fileInput.files.length && !textInput.value.trim()) {
+    // PENTING: Jika ada uploadedFile tersimpan, SELALU kirim ulang
+    // Ini memastikan backend dapat menghitung hash untuk cache lookup
+    if (uploadedFile && !fileInput.files.length) {
+        formData.set('file', uploadedFile);
+    }
+
+    if (!uploadedFile && !textInput.value.trim()) {
         showError('Mohon unggah file atau masukkan teks referensi.');
         return;
     }

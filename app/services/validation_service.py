@@ -18,9 +18,13 @@ from app.utils.text_utils import find_references_section
 
 logger = logging.getLogger(__name__)
 
-# File-based cache directory
-CACHE_DIR = os.path.join(Config.UPLOAD_FOLDER, '.cache')
-os.makedirs(CACHE_DIR, exist_ok=True)
+
+def get_cache_dir():
+    """Get cache directory path dynamically"""
+    cache_dir = os.path.join(Config.UPLOAD_FOLDER, '.cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    logger.info(f"[Cache] Cache directory: {cache_dir}")
+    return cache_dir
 
 
 def calculate_file_hash(content):
@@ -31,30 +35,37 @@ def calculate_file_hash(content):
 
 def get_cache_file_path(file_hash):
     """Get cache file path for given file hash"""
-    return os.path.join(CACHE_DIR, f"{file_hash}.json")
+    return os.path.join(get_cache_dir(), f"{file_hash}.json")
 
 
 def should_use_cache(file_hash, params):
     """Check if we can use cached results"""
     cache_file = get_cache_file_path(file_hash)
+    logger.info(f"[Cache Check] File hash: {file_hash}")
+    logger.info(f"[Cache Check] Cache file path: {cache_file}")
+    logger.info(f"[Cache Check] File exists: {os.path.exists(cache_file)}")
     
     if not os.path.exists(cache_file):
-        logger.info("No cache file found")
+        logger.warning("❌ No cache file found - will process from scratch")
         return False
     
     try:
         with open(cache_file, 'r', encoding='utf-8') as f:
             cache = json.load(f)
         
+        cached_style = cache.get('params', {}).get('style')
+        current_style = params.get('style')
+        logger.info(f"[Cache Check] Cached style: {cached_style}, Current style: {current_style}")
+        
         # If style is different, need to reprocess (AI prompt changes)
-        if cache.get('params', {}).get('style') != params.get('style'):
-            logger.info("Style parameter changed - need full reprocess")
+        if cached_style != current_style:
+            logger.warning(f"❌ Style changed ({cached_style} → {current_style}) - need full reprocess")
             return False
         
-        logger.info(f"✅ Cache hit! File: {cache.get('file_name')}")
+        logger.info(f"✅ Cache hit! File: {cache.get('file_name')} - Using fast revalidation")
         return True
     except Exception as e:
-        logger.error(f"Error reading cache: {e}")
+        logger.error(f"❌ Error reading cache: {e}", exc_info=True)
         return False
 
 
@@ -285,6 +296,9 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
         # Save to file-based cache for future fast revalidation
         if file_hash:
             cache_file = get_cache_file_path(file_hash)
+            logger.info(f"[Cache Save] Attempting to save cache...")
+            logger.info(f"[Cache Save] File hash: {file_hash}")
+            logger.info(f"[Cache Save] Cache file: {cache_file}")
             try:
                 cache_data = {
                     'file_hash': file_hash,
@@ -297,9 +311,10 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
                 }
                 with open(cache_file, 'w', encoding='utf-8') as f:
                     json.dump(cache_data, f, ensure_ascii=False, indent=2)
-                logger.info(f"💾 Cached results to file: {cache_file}")
+                logger.info(f"✅ Cache saved successfully: {cache_file}")
+                logger.info(f"[Cache Save] File size: {os.path.getsize(cache_file)} bytes")
             except Exception as e:
-                logger.error(f"Failed to save cache: {e}")
+                logger.error(f"❌ Failed to save cache: {e}", exc_info=True)
         
         # Sertakan year_range ke hasil agar PDF annotator dapat menggunakannya
         return {
@@ -308,7 +323,8 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
             "detailed_results": detailed_results,
             "recommendations": recommendations,
             "year_range": year_range,
-            "from_cache": False
+            "from_cache": False,
+            "file_hash": file_hash  # Return hash for session storage
         }
 
     except Exception as e:

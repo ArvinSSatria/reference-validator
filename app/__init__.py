@@ -1,13 +1,15 @@
 import logging
 import os
+import sys
 from flask import Flask
 from flask_socketio import SocketIO
 from config import Config
 
-# Konfigurasi logging
+# Konfigurasi logging simple - hanya ke console
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 

@@ -2,6 +2,8 @@ import logging
 import os
 import re
 import fitz  # PyMuPDF
+import tempfile
+import shutil
 from datetime import datetime
 from app.utils.text_utils import is_likely_reference
 
@@ -70,21 +72,31 @@ def extract_references_from_pdf(file_stream):
 
 
 def create_annotated_pdf(original_filepath, validation_results):
+    temp_pdf_path = None
     try:
         logger.info(f"[Annotate] Opening PDF: {original_filepath}")
         logger.info(f"[Annotate] File exists: {os.path.exists(original_filepath)}")
         
-        if os.path.exists(original_filepath):
-            logger.info(f"[Annotate] File size: {os.path.getsize(original_filepath)} bytes")
-        else:
+        if not os.path.exists(original_filepath):
             return None, f"File tidak ditemukan: {original_filepath}"
+            
+        logger.info(f"[Annotate] File size: {os.path.getsize(original_filepath)} bytes")
         
-        # Normalize path untuk Windows
-        normalized_path = os.path.normpath(original_filepath)
-        logger.info(f"[Annotate] Normalized path: {normalized_path}")
+        # CRITICAL FIX: Copy to system temp dengan nama pendek untuk avoid path issues
+        # AppData path bisa panjang + metadata PDF bisa punya karakter illegal
+        # System temp: short path, safe from PyMuPDF internal issues
+        try:
+            temp_pdf_fd, temp_pdf_path = tempfile.mkstemp(suffix='.pdf', prefix='refval_')
+            os.close(temp_pdf_fd)  # Close file descriptor, we only need the path
+            shutil.copy2(original_filepath, temp_pdf_path)
+            logger.info(f"[Annotate] Copied to temp location: {temp_pdf_path}")
+        except Exception as copy_error:
+            logger.error(f"[Annotate] Failed to copy to temp: {copy_error}")
+            # Fallback: try original path
+            temp_pdf_path = original_filepath
         
         try:
-            pdf = fitz.open(normalized_path)
+            pdf = fitz.open(temp_pdf_path)
             logger.info(f"[Annotate] PDF opened successfully, {len(pdf)} pages")
         except Exception as e:
             logger.error(f"[Annotate] fitz.open() failed: {e}", exc_info=True)
@@ -155,9 +167,25 @@ def create_annotated_pdf(original_filepath, validation_results):
         # Finalisasi PDF
         pdf_bytes = pdf.tobytes()
         pdf.close()
+        
+        # Cleanup temp file
+        if temp_pdf_path and temp_pdf_path != original_filepath:
+            try:
+                os.unlink(temp_pdf_path)
+                logger.info(f"[Annotate] Cleaned up temp file: {temp_pdf_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"[Annotate] Failed to cleanup temp: {cleanup_error}")
+        
         return pdf_bytes, None
 
     except Exception as e:
+        # Cleanup temp file on error
+        if temp_pdf_path and temp_pdf_path != original_filepath:
+            try:
+                os.unlink(temp_pdf_path)
+            except:
+                pass
+                
         logger.error(f"❌ Error fatal di create_annotated_pdf: {e}", exc_info=True)
         logger.error(f"   File: {original_filepath}")
         logger.error(f"   validation_results keys: {validation_results.keys() if validation_results else 'None'}")

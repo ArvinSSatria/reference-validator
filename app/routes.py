@@ -47,9 +47,6 @@ def validate_references_api():
             original_filepath = os.path.abspath(os.path.join(upload_folder, f"{session_id}_original{ext}"))
             file.save(original_filepath)
             
-            # Simpan path file asli di sesi
-            session['original_filepath'] = original_filepath
-            
             # Buka kembali untuk diproses
             file_stream_for_processing = open(original_filepath, 'rb')
             result = process_validation_request(request, file_stream_for_processing, socketio=socketio, session_id=session_id)

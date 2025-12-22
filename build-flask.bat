@@ -4,6 +4,13 @@ echo Building Flask Server with PyInstaller
 echo ========================================
 echo.
 
+REM Clean old build folders first
+echo Cleaning old build folders...
+if exist "dist" rmdir /S /Q "dist"
+if exist "build" rmdir /S /Q "build"
+echo Old build folders cleaned
+echo.
+
 REM Activate virtual environment
 if exist .venv\Scripts\activate.bat (
     echo Activating virtual environment...

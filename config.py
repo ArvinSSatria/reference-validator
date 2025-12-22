@@ -40,7 +40,21 @@ class Config:
     ALLOWED_EXTENSIONS = {'docx', 'pdf'}
     SCIMAGO_FILE_PATH = str(BASE_DIR / 'data' / 'scimagojr 2024.csv')
     
-    UPLOAD_FOLDER = 'uploads'
+    # Upload folder: production uses AppData, development uses project folder
+    if getattr(sys, 'frozen', False):
+        # Production: use AppData for persistent storage
+        UPLOAD_FOLDER = str(Path(os.getenv('LOCALAPPDATA')) / 'reference-validator-desktop' / 'uploads')
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        print(f"[Config] Running as FROZEN executable - AppData path: {UPLOAD_FOLDER}")
+    else:
+        # Development: use project folder
+        UPLOAD_FOLDER = 'uploads'
+        print(f"[Config] Running as SCRIPT - Relative path: {UPLOAD_FOLDER}")
+    
+    # Always ensure UPLOAD_FOLDER exists
+    if not os.path.isabs(UPLOAD_FOLDER):
+        UPLOAD_FOLDER = os.path.abspath(UPLOAD_FOLDER)
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     
     try:
         # Pakai environment jika tersedia, jika tidak bangun dari bagian obfuscated

@@ -46,11 +46,16 @@ Reference Validator is a **desktop application** for automatic validation and pr
 
 1. Download `Reference Validator Setup 1.0.0.exe` from [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
 2. Run installer and follow setup wizard
-3. Choose installation location (default: Program Files)
-4. Desktop shortcut will be created automatically
-5. Launch from Desktop or Start Menu
+3. **⚠️ IMPORTANT**: When prompted, select **"Install for me only"** or **"Just for me"**
+   - ❌ **DO NOT** choose "Install for all users" (will cause permission errors)
+   - ✅ This ensures proper file access for uploads, cache, and temp files
+4. Choose installation location (default: `%LOCALAPPDATA%\Programs`)
+5. Desktop shortcut will be created automatically
+6. Launch from Desktop or Start Menu
 
 > **Note**: API key is bundled for demo/testing. First launch may take 20-30 seconds.
+
+> **⚠️ Troubleshooting**: If you get "unexpected errors" during validation, it's likely due to installing "for all users". Please uninstall and reinstall with "Install for me only" option.
 
 ---
 
@@ -175,6 +180,19 @@ API key is bundled for demo/testing. For production use:
 ### Troubleshooting
 
 <details>
+<summary><b>⚠️ Unexpected errors during validation (Permission denied)</b></summary>
+
+**Cause:** Application installed with "Install for all users" option.
+
+**Solutions:**
+1. Uninstall the current application
+2. Reinstall with **"Install for me only"** option
+3. Alternative: Right-click application → "Run as Administrator" (not recommended)
+
+**Why?** "For all users" installs to `C:\Program Files` which has restricted write permissions. The app needs to create upload folders, cache files, and temp files during validation.
+</details>
+
+<details>
 <summary><b>First launch takes 20-30 seconds</b></summary>
 
 This is normal. The application needs to:
@@ -227,11 +245,16 @@ Reference Validator adalah aplikasi desktop untuk validasi referensi akademik se
 
 1. Download `Reference Validator Setup 1.0.0.exe` dari [Releases](https://github.com/ArvinSSatria/reference-validator/releases)
 2. Jalankan installer dan ikuti wizard instalasi
-3. Pilih lokasi instalasi (default: Program Files)
-4. Shortcut desktop dibuat otomatis
-5. Buka dari Desktop atau Start Menu
+3. **⚠️ PENTING**: Saat diminta, pilih **"Install for me only"** atau **"Hanya untuk saya"**
+   - ❌ **JANGAN** pilih "Install for all users" / "Untuk semua pengguna" (akan menyebabkan error permission)
+   - ✅ Ini memastikan akses file yang tepat untuk upload, cache, dan file temporary
+4. Pilih lokasi instalasi (default: `%LOCALAPPDATA%\Programs`)
+5. Shortcut desktop dibuat otomatis
+6. Buka dari Desktop atau Start Menu
 
 > **Catatan**: API key sudah terpasang untuk demo. Peluncuran pertama butuh 20-30 detik.
+
+> **⚠️ Troubleshooting**: Jika mendapat error "tak terduga" saat validasi, kemungkinan karena install "for all users". Silakan uninstall dan install ulang dengan pilihan "Install for me only".
 
 ---
 

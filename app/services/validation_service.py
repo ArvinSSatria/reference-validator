@@ -1,6 +1,8 @@
 import logging
 import re
 import hashlib
+import json
+import os
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask_socketio import emit
@@ -16,6 +18,10 @@ from app.utils.text_utils import find_references_section
 
 logger = logging.getLogger(__name__)
 
+# File-based cache directory
+CACHE_DIR = os.path.join(Config.UPLOAD_FOLDER, '.cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
 
 def calculate_file_hash(content):
     if isinstance(content, str):
@@ -23,27 +29,36 @@ def calculate_file_hash(content):
     return hashlib.md5(content).hexdigest()
 
 
+def get_cache_file_path(file_hash):
+    """Get cache file path for given file hash"""
+    return os.path.join(CACHE_DIR, f"{file_hash}.json")
+
+
 def should_use_cache(file_hash, params):
-    cache = session.get('validation_cache')
+    """Check if we can use cached results"""
+    cache_file = get_cache_file_path(file_hash)
     
-    if not cache:
-        logger.info("No cache found in session")
+    if not os.path.exists(cache_file):
+        logger.info("No cache file found")
         return False
     
-    if cache.get('file_hash') != file_hash:
-        logger.info("File hash mismatch - different file")
+    try:
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+        
+        # If style is different, need to reprocess (AI prompt changes)
+        if cache.get('params', {}).get('style') != params.get('style'):
+            logger.info("Style parameter changed - need full reprocess")
+            return False
+        
+        logger.info(f"✅ Cache hit! File: {cache.get('file_name')}")
+        return True
+    except Exception as e:
+        logger.error(f"Error reading cache: {e}")
         return False
-    
-    # If style is different, need to reprocess (AI prompt changes)
-    if cache.get('params', {}).get('style') != params.get('style'):
-        logger.info("Style parameter changed - need full reprocess")
-        return False
-    
-    logger.info(f"✅ Cache hit! File: {cache.get('file_name')}")
-    return True
 
 
-def revalidate_from_cache(params, socketio=None, session_id=None):
+def revalidate_from_cache(file_hash, params, socketio=None, session_id=None):
     def emit_progress(step, message, progress):
         """Helper to emit progress if socketio is available"""
         if socketio and session_id:
@@ -56,7 +71,14 @@ def revalidate_from_cache(params, socketio=None, session_id=None):
             })
             logger.info(f"Progress emit (cached): {message} ({progress}%)")
     
-    cache = session.get('validation_cache')
+    # Load cache from file
+    cache_file = get_cache_file_path(file_hash)
+    try:
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            cache = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load cache: {e}")
+        return None
     
     emit_progress('cache', '⚡ Menggunakan hasil analisis sebelumnya...', 20)
     
@@ -166,7 +188,11 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
     # Check if we can use cached results
     if file_hash and should_use_cache(file_hash, params):
         logger.info("🚀 Using cached results for fast revalidation")
-        return revalidate_from_cache(params, socketio, session_id)
+        result = revalidate_from_cache(file_hash, params, socketio, session_id)
+        if result:
+            return result
+        else:
+            logger.warning("Cache read failed, falling back to full processing")
     
     # No cache available or cache invalid - process from scratch
     logger.info("📄 Processing validation from scratch...")
@@ -256,18 +282,24 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
 
         emit_progress('complete', 'Validasi selesai!', 100)
         
-        # Save to cache for future fast revalidation
+        # Save to file-based cache for future fast revalidation
         if file_hash:
-            session['validation_cache'] = {
-                'file_hash': file_hash,
-                'file_name': file_name,
-                'references_list': references_list,
-                'ai_results': batch_results_json,
-                'detected_style': detected_style,
-                'params': params,
-                'timestamp': datetime.now().isoformat()
-            }
-            logger.info(f"💾 Cached results for file: {file_name}")
+            cache_file = get_cache_file_path(file_hash)
+            try:
+                cache_data = {
+                    'file_hash': file_hash,
+                    'file_name': file_name,
+                    'references_list': references_list,
+                    'ai_results': batch_results_json,
+                    'detected_style': detected_style,
+                    'params': params,
+                    'timestamp': datetime.now().isoformat()
+                }
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(cache_data, f, ensure_ascii=False, indent=2)
+                logger.info(f"💾 Cached results to file: {cache_file}")
+            except Exception as e:
+                logger.error(f"Failed to save cache: {e}")
         
         # Sertakan year_range ke hasil agar PDF annotator dapat menggunakannya
         return {

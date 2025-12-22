@@ -66,3 +66,5 @@ electron/package-lock.json
 build/
 dist/
 *.spec
+
+docs/

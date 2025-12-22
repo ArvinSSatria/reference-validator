@@ -394,17 +394,6 @@ def get_scopus_search_statistics():
 
 
 def select_best_match_from_list(matches):
-    """
-    Jika ada multiple matches (misalnya Microbiology dengan negara berbeda),
-    pilih yang paling relevan. Untuk saat ini, kita pilih yang pertama,
-    tapi bisa ditingkatkan dengan scoring berdasarkan publisher, dll.
-    
-    Args:
-        matches: Single dict or list of dicts
-    
-    Returns:
-        Single dict (best match)
-    """
     if isinstance(matches, list):
         if len(matches) == 1:
             return matches[0]

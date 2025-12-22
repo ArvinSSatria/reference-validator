@@ -1,7 +1,10 @@
 import logging
 import re
+import hashlib
+from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask_socketio import emit
+from flask import session
 from config import Config
 from app.services.ai_service import split_references_with_ai, analyze_references_with_ai
 from app.services.scimago_service import search_journal_in_scimago
@@ -14,16 +17,114 @@ from app.utils.text_utils import find_references_section
 logger = logging.getLogger(__name__)
 
 
-def process_validation_request(request, saved_file_stream=None, socketio=None, session_id=None):
-    """
-    Process validation request with optional real-time progress updates via SocketIO.
+def calculate_file_hash(content):
+    if isinstance(content, str):
+        content = content.encode('utf-8')
+    return hashlib.md5(content).hexdigest()
+
+
+def should_use_cache(file_hash, params):
+    cache = session.get('validation_cache')
     
-    Args:
-        request: Flask request object
-        saved_file_stream: Optional file stream
-        socketio: Optional SocketIO instance for progress updates
-        session_id: Optional session ID for client identification
-    """
+    if not cache:
+        logger.info("No cache found in session")
+        return False
+    
+    if cache.get('file_hash') != file_hash:
+        logger.info("File hash mismatch - different file")
+        return False
+    
+    # If style is different, need to reprocess (AI prompt changes)
+    if cache.get('params', {}).get('style') != params.get('style'):
+        logger.info("Style parameter changed - need full reprocess")
+        return False
+    
+    logger.info(f"✅ Cache hit! File: {cache.get('file_name')}")
+    return True
+
+
+def revalidate_from_cache(params, socketio=None, session_id=None):
+    def emit_progress(step, message, progress):
+        """Helper to emit progress if socketio is available"""
+        if socketio and session_id:
+            socketio.emit('validation_progress', {
+                'step': step,
+                'message': message,
+                'progress': progress,
+                'session_id': session_id,
+                'cached': True
+            })
+            logger.info(f"Progress emit (cached): {message} ({progress}%)")
+    
+    cache = session.get('validation_cache')
+    
+    emit_progress('cache', '⚡ Menggunakan hasil analisis sebelumnya...', 20)
+    
+    # Load cached data
+    references_list = cache['references_list']
+    batch_results_json = cache['ai_results']
+    detected_style = cache['detected_style']
+    
+    total_refs = len(references_list)
+    emit_progress('cache', f'Memuat {total_refs} referensi dari cache', 40)
+    
+    # Get new parameters
+    min_ref_count = params.get('min_ref_count', Config.MIN_REFERENCE_COUNT)
+    year_range = params.get('year_range', Config.REFERENCE_YEAR_THRESHOLD)
+    journal_percent_threshold = params.get('journal_percent', Config.JOURNAL_PROPORTION_THRESHOLD)
+    style = params.get('style', 'APA')
+    
+    # Validate count with new parameters
+    count = len(references_list)
+    count_valid = min_ref_count <= count <= Config.MAX_REFERENCE_COUNT
+    count_message = f"Jumlah referensi ({count}) sudah sesuai standar."
+    if count < min_ref_count:
+        count_message = f"Jumlah referensi ({count}) kurang dari minimum ({min_ref_count})."
+    elif count > Config.MAX_REFERENCE_COUNT:
+        count_message = f"Jumlah referensi ({count}) melebihi maksimum ({Config.MAX_REFERENCE_COUNT})."
+    
+    count_validation = {
+        "is_count_appropriate": count_valid,
+        "count_message": count_message
+    }
+    
+    emit_progress('revalidate', 'Menerapkan parameter validasi baru...', 60)
+    
+    # Reprocess with new year_range (need to revalidate year validity)
+    detailed_results = _process_ai_response(
+        batch_results_json, 
+        references_list, 
+        style, 
+        detected_style, 
+        year_range
+    )
+    
+    emit_progress('revalidate', 'Menyusun hasil validasi...', 85)
+    
+    # Generate summary with new thresholds
+    summary, recommendations = _generate_summary_and_recommendations(
+        detailed_results,
+        count_validation,
+        detected_style,
+        journal_percent_threshold,
+        min_ref_count
+    )
+    
+    emit_progress('complete', '✅ Validasi selesai (mode cepat)!', 100)
+    
+    logger.info(f"🚀 Fast revalidation completed in <2s using cache")
+    
+    return {
+        "success": True,
+        "summary": summary,
+        "detailed_results": detailed_results,
+        "recommendations": recommendations,
+        "year_range": year_range,
+        "from_cache": True
+    }
+
+
+def process_validation_request(request, saved_file_stream=None, socketio=None, session_id=None):
     def emit_progress(step, message, progress):
         """Helper to emit progress if socketio is available"""
         if socketio and session_id:
@@ -34,6 +135,41 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
                 'session_id': session_id
             })
             logger.info(f"Progress emit: {message} ({progress}%)")
+    
+    # Calculate file hash for cache identification
+    file_hash = None
+    file_name = None
+    
+    if saved_file_stream:
+        # Read file content for hashing
+        saved_file_stream.seek(0)
+        file_content = saved_file_stream.read()
+        file_hash = calculate_file_hash(file_content)
+        saved_file_stream.seek(0)  # Reset for extraction
+        
+        if 'file' in request.files and request.files['file'].filename:
+            file_name = secure_filename(request.files['file'].filename)
+    elif 'text' in request.form and request.form['text'].strip():
+        # For text input, hash the text content
+        text_content = request.form['text'].strip()
+        file_hash = calculate_file_hash(text_content)
+        file_name = "manual_input.txt"
+    
+    # Prepare validation parameters
+    params = {
+        'min_ref_count': request.form.get('min_ref_count', Config.MIN_REFERENCE_COUNT, type=int),
+        'style': request.form.get('style', 'APA'),
+        'year_range': request.form.get('year_range', Config.REFERENCE_YEAR_THRESHOLD, type=int),
+        'journal_percent': request.form.get('journal_percent', Config.JOURNAL_PROPORTION_THRESHOLD, type=float)
+    }
+    
+    # Check if we can use cached results
+    if file_hash and should_use_cache(file_hash, params):
+        logger.info("🚀 Using cached results for fast revalidation")
+        return revalidate_from_cache(params, socketio, session_id)
+    
+    # No cache available or cache invalid - process from scratch
+    logger.info("📄 Processing validation from scratch...")
     
     # Step 1: Extract references
     emit_progress('extract', 'Mengekstrak referensi dari dokumen...', 10)
@@ -120,13 +256,27 @@ def process_validation_request(request, saved_file_stream=None, socketio=None, s
 
         emit_progress('complete', 'Validasi selesai!', 100)
         
+        # Save to cache for future fast revalidation
+        if file_hash:
+            session['validation_cache'] = {
+                'file_hash': file_hash,
+                'file_name': file_name,
+                'references_list': references_list,
+                'ai_results': batch_results_json,
+                'detected_style': detected_style,
+                'params': params,
+                'timestamp': datetime.now().isoformat()
+            }
+            logger.info(f"💾 Cached results for file: {file_name}")
+        
         # Sertakan year_range ke hasil agar PDF annotator dapat menggunakannya
         return {
             "success": True,
             "summary": summary,
             "detailed_results": detailed_results,
             "recommendations": recommendations,
-            "year_range": year_range
+            "year_range": year_range,
+            "from_cache": False
         }
 
     except Exception as e:

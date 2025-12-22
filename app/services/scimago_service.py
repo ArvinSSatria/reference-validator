@@ -35,13 +35,13 @@ COMMON_ABBREVIATIONS = {
     "intl.": "international",
     "comp.": "computing",
     "comput.": "computing",
-    "computer": "computing",  # ADDED: normalize 'computer' to 'computing'
-    "computation": "computing",  # ADDED: normalize variants
-    "computational": "computing",  # ADDED: normalize variants
+    "computer": "computing",
+    "computation": "computing", 
+    "computational": "computing",
     "evol.": "evolutionary",
     "intell.": "intelligence",
     "sci.": "science",
-    "sciences": "science",  # ADDED: normalize plural to singular
+    "sciences": "science",
     "tech.": "technology",
     "technol.": "technology",
     "softw.": "software",
@@ -58,16 +58,16 @@ COMMON_ABBREVIATIONS = {
     "assoc.": "association",
     "appl.": "applied",
     "theor.": "theoretical",
-    "pract.": "practice",  # ADDED: Missing abbreviation
-    "practice": "practice",  # ADDED: normalize
-    "exp.": "experience",  # ADDED: Missing abbreviation
-    "experience": "experience",  # ADDED: normalize
-    "inf.": "information",  # ADDED: Missing abbreviation
-    "information": "information",  # ADDED: normalize
-    "syst.": "systems",  # ADDED: Missing abbreviation
-    "system": "systems",  # ADDED: normalize singular to plural
-    "mach.": "machine",  # ADDED: Missing abbreviation
-    "learn.": "learning",  # ADDED: for 'Mach. Learn.'
+    "pract.": "practice",
+    "practice": "practice",
+    "exp.": "experience",
+    "experience": "experience",
+    "inf.": "information",
+    "information": "information",
+    "syst.": "systems",
+    "system": "systems",
+    "mach.": "machine", 
+    "learn.": "learning",
     "eng.": "engineering",
     "med.": "medicine",
     "phys.": "physics",
@@ -326,16 +326,9 @@ def search_journal_in_scimago(journal_name):
             stopwords_check = {'of', 'the', 'and', 'for', 'in', 'on', 'a', 'an', 'to'}
             important_query = query_words - stopwords_check
             important_db = db_words - stopwords_check
-            
-            # Jika ada kata penting di query yang TIDAK ada di DB, ini BUKAN typo!
-            # Contoh: "Annual Review of Information..." vs "Annual Review of Food..."
-            # "information" tidak ada dalam DB, sehingga ini bukan typo biasa
+
             missing_important = important_query - important_db
             if len(missing_important) > 0:
-                # Ada kata penting yang hilang - hanya accept jika SEMUA kata yang hilang
-                # adalah typo minor (edit distance kecil)
-                # Untuk kasus "information" vs "food", ini akan gagal karena beda total
-                # Hanya accept jika similarity SANGAT tinggi (>0.95) yang berarti pure typo
                 if seq_ratio < 0.95:
                     continue  # Bukan typo, ada kata yang memang berbeda, skip
 

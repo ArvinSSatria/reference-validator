@@ -7,15 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_bibtex_text(text: str) -> str:
-    """
-    Sanitize text untuk BibTeX - remove atau replace karakter problematic.
-    
-    Args:
-        text: Input text yang mungkin punya karakter aneh
-        
-    Returns:
-        str: Cleaned text yang aman untuk BibTeX
-    """
     if not text:
         return text
     
@@ -59,18 +50,7 @@ def generate_bibtex(
     reference_data: Dict,
     is_complete: bool = True
 ) -> Tuple[str, bool]:
-    """
-    Generate BibTeX entry dari data referensi.
-    
-    Args:
-        reference_data: Dict berisi parsed reference data
-        is_complete: Apakah referensi lengkap atau tidak
-        
-    Returns:
-        Tuple[str, bool]: (bibtex_string, is_partial)
-            - bibtex_string: BibTeX formatted string
-            - is_partial: True jika ada field MISSING
-    """
+
     try:
         ref_type = reference_data.get('reference_type', 'other')
         authors = reference_data.get('parsed_authors', [])
@@ -191,22 +171,7 @@ def generate_correct_format_example(
     issue: Optional[str] = "2",
     pages: Optional[str] = "1-10"
 ) -> str:
-    """
-    Generate contoh format yang benar sesuai citation style.
-    
-    Args:
-        authors: List of authors
-        year: Publication year
-        title: Article title
-        journal: Journal name
-        style: Citation style (APA, IEEE, MLA, Harvard, Chicago)
-        volume: Volume number (optional, default "10")
-        issue: Issue number (optional, default "2")
-        pages: Page range (optional, default "1-10")
-        
-    Returns:
-        str: Formatted reference example
-    """
+
     try:
         # Ambil author pertama untuk contoh
         first_author = authors[0] if authors else "Smith, J."
@@ -246,11 +211,7 @@ def generate_correct_format_example(
 
 
 def _generate_citation_key(authors: List[str], year: Optional[int], title: str) -> str:
-    """
-    Generate BibTeX citation key dari author, year, dan title.
-    Format: firstauthorlastname + year + firstwordoftitle
-    Contoh: smith2023machine
-    """
+
     try:
         # Get first author's last name
         if authors and len(authors) > 0:
@@ -286,9 +247,7 @@ def _generate_citation_key(authors: List[str], year: Optional[int], title: str) 
 
 
 def _map_to_bibtex_type(reference_type: str) -> str:
-    """
-    Map reference_type ke BibTeX entry type.
-    """
+    
     mapping = {
         'journal': 'article',
         'conference': 'inproceedings',
@@ -304,15 +263,7 @@ def _map_to_bibtex_type(reference_type: str) -> str:
 
 
 def _parse_author_name(author_string: str) -> Tuple[str, str]:
-    """
-    Parse author name untuk extract last name dan initial.
-    
-    Args:
-        author_string: e.g., "Smith, J." atau "J. Smith" atau "John Smith"
-        
-    Returns:
-        Tuple[str, str]: (last_name, initials)
-    """
+
     try:
         # Handle format: "Last, F. M."
         if ',' in author_string:

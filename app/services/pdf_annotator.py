@@ -7,10 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_text_for_search(text):
-    """
-    Normalize text untuk pencarian PDF yang lebih fleksibel.
-    Menghapus line breaks, normalize whitespace, dan karakter special.
-    """
     if not text:
         return ""
     
@@ -27,19 +23,6 @@ def normalize_text_for_search(text):
 
 
 def merge_close_rects(rects, max_distance=10):
-    """
-    Merge rects yang sangat dekat secara horizontal pada baris yang sama.
-    Mengatasi masalah highlight terpecah untuk nama jurnal yang sama.
-    
-    Contoh: "Comput." dan "Linguist." di baris yang sama akan digabung jadi 1 highlight.
-    
-    Args:
-        rects: List of fitz.Rect objects dari page.search_for()
-        max_distance: Jarak horizontal maksimum (dalam PDF points) untuk dianggap satu unit
-    
-    Returns:
-        List of merged fitz.Rect objects
-    """
     if not rects:
         return []
     
@@ -69,20 +52,6 @@ def merge_close_rects(rects, max_distance=10):
 
 
 def group_rects_by_proximity(rects, max_vertical_distance=15, max_horizontal_gap=50):
-    """
-    Kelompokkan rects yang merupakan bagian dari satu kemunculan teks yang sama.
-    Ini mengatasi masalah dimana nama jurnal terpotong ke beberapa baris berbeda.
-    
-    Contoh: "Comput." di baris 1 dan "Linguist." di baris 2 akan dijadikan satu grup.
-    
-    Args:
-        rects: List of fitz.Rect objects dari page.search_for()
-        max_vertical_distance: Jarak vertikal maksimum (tinggi baris) untuk dianggap satu grup
-        max_horizontal_gap: Jarak horizontal maksimum untuk continuation ke baris berikutnya
-    
-    Returns:
-        List of lists, dimana setiap inner list adalah grup rects yang saling berdekatan
-    """
     if not rects:
         return []
     
@@ -300,20 +269,6 @@ def find_references_section_in_text(full_text):
 
 
 def find_end_of_references(text, start_index):
-    """
-    Find the end of references section by looking for common section headers that come after references.
-    
-    Keywords to look for:
-    - ACKNOWLEDGMENTS / ACKNOWLEDGEMENTS / UCAPAN TERIMA KASIH
-    - APPENDIX / APPENDICES / LAMPIRAN
-    - ABOUT AUTHORS / TENTANG PENULIS
-    - AUTHOR CONTRIBUTIONS / KONTRIBUSI PENULIS
-    - FUNDING / PENDANAAN
-    - CONFLICT OF INTEREST / KONFLIK KEPENTINGAN
-    - BIOGRAPHY / BIOGRAFI
-    
-    Returns character index of end section, or -1 if not found
-    """
     # List of keywords for sections after references
     end_keywords = [
         'ACKNOWLEDGMENTS',
@@ -380,14 +335,7 @@ def annotate_pdf_page(
     colors,
     full_pdf_text
 ):
-    """
-    Annotate satu halaman PDF dengan highlight untuk:
-    1. Heading "References" / "Daftar Pustaka"
-    2. Nama jurnal (hijau jika terindeks, pink jika tidak)
-    3. Tahun yang outdated (merah)
-    
-    Menggunakan strategi pencarian bertingkat untuk menghindari tumpang tindih highlight.
-    """
+
     # Ekstrak warna dari dictionary
     PATTENS_BLUE = colors['PATTENS_BLUE']
     INDEXED_RGB = colors['INDEXED_RGB']
@@ -756,7 +704,8 @@ def annotate_pdf_page(
                 # Buat badge text
                 index_badges = []
                 if is_indexed_scimago:
-                    index_badges.append(f"ScimagoJR (Q{quartile})" if quartile and quartile != 'N/A' else "ScimagoJR")
+                    # quartile sudah dalam format "Q1", "Q2", dll dari database
+                    index_badges.append(f"ScimagoJR ({quartile})" if quartile and quartile != 'N/A' else "ScimagoJR")
                 if is_indexed_scopus:
                     index_badges.append("Scopus")
                 

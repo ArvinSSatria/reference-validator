@@ -19,7 +19,7 @@ function initializeSocket() {
     // Listen for validation progress updates
     socket.on('validation_progress', (data) => {
         console.log('Progress update:', data);
-        updateProgressBar(data.progress, data.message);
+        updateProgressBar(data.progress, data.message, data.cached);
     });
     
     // Listen for PDF generation progress
@@ -170,7 +170,7 @@ async function validateReferences() {
 }
 
 // Update progress bar with percentage and message
-function updateProgressBar(progress, message) {
+function updateProgressBar(progress, message, isCached = false) {
     const progressFill = document.getElementById('progressFill');
     const progressPercentage = document.getElementById('progressPercentage');
     const progressInfo = document.getElementById('progressInfo');
@@ -179,6 +179,12 @@ function updateProgressBar(progress, message) {
         progressFill.style.width = progress + '%';
         progressPercentage.textContent = progress + '%';
         progressInfo.textContent = message;
+        
+        if (isCached || message.includes('⚡') || message.includes('cache') || message.includes('cepat')) {
+            progressFill.style.background = 'linear-gradient(90deg, #34495e, #5d6d7e)'; // Gradient for fast processing
+        } else {
+            progressFill.style.background = '#2c3e50'; // Default color
+        }
     }
 }
 
@@ -224,7 +230,11 @@ function hideResults() {
 }
 
 function displayResults(data) {
-    const { summary, detailed_results, recommendations } = data;
+    const { summary, detailed_results, recommendations, from_cache } = data;
+    
+    // Store cache status for summary display
+    window.currentResultsFromCache = from_cache || false;
+    
     displaySummary(summary);
     displayRecommendations(recommendations);
     displayDetailedResults(detailed_results);
@@ -260,6 +270,7 @@ function displayResults(data) {
 // Function untuk update status PDF generation dari SocketIO
 function displaySummary(summary) {
     const summaryGrid = document.getElementById('summaryGrid');
+    
     summaryGrid.innerHTML = `
         <div class="summary-item">
             <div class="summary-number">${summary.total_references}</div>

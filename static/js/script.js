@@ -457,13 +457,53 @@ textInput.addEventListener('input', () => {
 });
 
 const downloadBtn = document.getElementById('downloadBtn');
-downloadBtn.addEventListener('click', () => {
+downloadBtn.addEventListener('click', async () => {
     // Kirim session_id sebagai query parameter
-    if (currentSessionId) {
-        window.open(`/api/download_report?session_id=${currentSessionId}`, '_blank');
-    } else {
-        // Fallback ke cookie-based session (backward compatibility)
-        window.open('/api/download_report', '_blank');
+    const url = currentSessionId 
+        ? `/api/download_report?session_id=${currentSessionId}` 
+        : '/api/download_report';
+    
+    try {
+        downloadBtn.disabled = true;
+        downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating PDF...';
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            // Jika error, coba parse JSON error message
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Download failed');
+        }
+        
+        // Download berhasil, ambil blob
+        const blob = await response.blob();
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'annotated_report.pdf';
+        
+        if (contentDisposition) {
+            const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+            if (matches && matches[1]) {
+                filename = matches[1].replace(/['"]/g, '');
+            }
+        }
+        
+        // Create download link
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(blobUrl);
+        
+        downloadBtn.disabled = false;
+        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
+    } catch (error) {
+        console.error('Download error:', error);
+        alert(`Gagal download PDF: ${error.message}`);
+        downloadBtn.disabled = false;
+        downloadBtn.innerHTML = '<i class="fas fa-download"></i> Download PDF Beranotasi';
     }
 });
 

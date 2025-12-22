@@ -100,7 +100,7 @@ def find_references_section_in_text(full_text):
     2. Validate it's actually a references section (has years, citations pattern)
     3. Pick the one closest to END of document (usually > 50%)
     
-    Returns (line_number, keyword_found) or (-1, None)
+    Returns (line_number, keyword_found, char_index) or (-1, None, -1)
     """
     # Daftar kata kunci untuk bagian referensi
     keywords = [
@@ -236,7 +236,7 @@ def find_references_section_in_text(full_text):
             })
     
     if not candidates:
-        return -1, None
+        return -1, None, -1
     
     # Sort kandidat berdasarkan:
     # 1. Validation score (descending) - yang paling valid

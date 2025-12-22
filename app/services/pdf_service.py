@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import fitz  # PyMuPDF
 from datetime import datetime
@@ -70,8 +71,33 @@ def extract_references_from_pdf(file_stream):
 
 def create_annotated_pdf(original_filepath, validation_results):
     try:
-        pdf = fitz.open(original_filepath)
+        logger.info(f"[Annotate] Opening PDF: {original_filepath}")
+        logger.info(f"[Annotate] File exists: {os.path.exists(original_filepath)}")
+        
+        if os.path.exists(original_filepath):
+            logger.info(f"[Annotate] File size: {os.path.getsize(original_filepath)} bytes")
+        else:
+            return None, f"File tidak ditemukan: {original_filepath}"
+        
+        # Normalize path untuk Windows
+        normalized_path = os.path.normpath(original_filepath)
+        logger.info(f"[Annotate] Normalized path: {normalized_path}")
+        
+        try:
+            pdf = fitz.open(normalized_path)
+            logger.info(f"[Annotate] PDF opened successfully, {len(pdf)} pages")
+        except Exception as e:
+            logger.error(f"[Annotate] fitz.open() failed: {e}", exc_info=True)
+            return None, f"Gagal membuka PDF: {str(e)}"
+        
         detailed_results = validation_results.get('detailed_results', [])
+        logger.info(f"[Annotate] Processing {len(detailed_results)} detailed results")
+        
+        # Defensive check
+        if not detailed_results:
+            logger.error("❌ No detailed_results in validation_results!")
+            logger.error(f"Available keys: {validation_results.keys()}")
+            return None, "Data hasil validasi tidak lengkap. Mohon lakukan validasi ulang."
         
         # Define colors
         colors = {
@@ -132,5 +158,18 @@ def create_annotated_pdf(original_filepath, validation_results):
         return pdf_bytes, None
 
     except Exception as e:
-        logger.error(f"Error fatal di create_annotated_pdf: {e}", exc_info=True)
-        return None, "Gagal total saat proses anotasi PDF."
+        logger.error(f"❌ Error fatal di create_annotated_pdf: {e}", exc_info=True)
+        logger.error(f"   File: {original_filepath}")
+        logger.error(f"   validation_results keys: {validation_results.keys() if validation_results else 'None'}")
+        logger.error(f"   detailed_results count: {len(validation_results.get('detailed_results', []))}")
+        
+        # Return specific error message
+        error_details = str(e)
+        if "detailed_results" in error_details.lower():
+            return None, "Data hasil validasi tidak lengkap. Mohon lakukan validasi ulang."
+        elif "FileNotFoundError" in str(type(e)):
+            return None, f"File tidak ditemukan: {os.path.basename(original_filepath)}"
+        elif "memory" in error_details.lower():
+            return None, "File terlalu besar untuk membuat PDF anotasi."
+        else:
+            return None, f"Gagal membuat PDF anotasi: {type(e).__name__}. Detail: {error_details[:100]}"
